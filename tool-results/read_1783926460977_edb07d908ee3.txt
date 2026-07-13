@@ -1,0 +1,488 @@
+     1→---
+     2→Task ID: 0
+     3→Agent: Orchestrator
+     4→Task: Plan & build Sistem e-Tempahan PLTT-JTM per PRD
+     5→
+     6→Work Log:
+     7→- Read PRD_Sistem_eTempahan_PLTT_JTM.pdf (14 pages)
+     8→- Defined Prisma schema (User, Facility, Booking, ApprovalLog, Notification, AuditLog, Feedback, Session, Account, VerificationToken)
+     9→- Seeded 8 users, 6 facilities, 22 bookings, 5 feedbacks, 7 audit logs
+    10→- Built API routes: auth (NextAuth credentials + register), bookings CRUD + check-conflict, facilities CRUD, approvals, notifications, ai/chat, ai/parse-booking, ai/report-summary, analytics, users CRUD, audit, me, feedback
+    11→- Built security: crypto (scrypt+AES-256-GCM), rate-limit, audit logger, RBAC, middleware (CSP, HSTS, X-Frame-Options, PDPA header)
+    12→- Built glassmorphism globals.css with teal/green/amber palette (no indigo/blue)
+    13→- Built Zustand store, use-current-user hook, use-t hook (BM/BI i18n)
+    14→- Default logins: admin@pltt.gov.my / fadmin@pltt.gov.my / user1@pltt.gov.my  (password: Password123!)
+    15→
+    16→Stage Summary:
+    17→- Backend fully ready; front-end shell + all major views (Public Calendar, Login, Booking Form w/ AI, Personal Dashboard, Approvals, Facility Mgmt, Analytics, User Mgmt, Calendar, Audit) to be built next.
+    18→- All buttons must work end-to-end. UI: glassmorphism, teal/emerald palette, BM/BI bilingual, responsive, sticky footer.
+    19→
+    20→---
+    21→Task ID: 9-approvals-view
+    22→Agent: ApprovalsView Builder
+    23→Task: Build src/views/approvals-view.tsx — Admin Approval Dashboard (FR-02)
+    24→
+    25→Work Log:
+    26→- Read existing infra: API routes (/api/approvals, /api/approvals/[id], /api/bookings/check-conflict), prisma schema (Booking.requiresMultiLevel, equipmentNeeded JSON string, facility select shape), use-t/use-current-user/useApp hooks, GlassCard/StatusBadge, glass globals.css (teal/emerald/amber palette).
+    27→- Built ApprovalsView() with:
+    28→  • Header card w/ gradient-text + 4 stat tiles (Total Pending, Today's Pending, Multi-level Required, Needs Info).
+    29→  • Tabs (PENDING / NEEDS_INFO) + search bar (filter by bookingRef / applicant name / facility) + record-count summary.
+    30→  • Two-column layout: left = scrollable list (max-h-640, custom scrollbar), right = detail panel.
+    31→  • Each list item: bookingRef + requiresMultiLevel badge, applicant name, facility color dot + name, date/time/participants, program name, status badge, selected highlight (teal ring).
+    32→  • Detail panel: header (bookingRef, status, multi-level badge, facility name, date/time/location) → warnings block (amber Alert for over-capacity, red destructive Alert listing conflicting bookings from /api/bookings/check-conflict, info Alert while loading conflict) → two-column applicant info + facility info → booking details (purpose, program, equipment tags, notes) → sticky action footer (Approve=emerald, Request Info=amber, Reject=rose).
+    33→  • Action Dialog w/ Textarea for admin comment (required for REJECT/REQUEST_INFO, optional for APPROVE) — colored contextual Alert per action; live char counter (max 1000); disable submit while pending or when required comment empty.
+    34→  • useMutation to PATCH /api/approvals/[id] — on success: toast.success (BM/BI), invalidate approvals/conflict/notifications queries, auto-select next pending by clearing selectedId so derived `selected` falls back to first item in refreshed list. On 409/conflict: toast.error with server message.
+    35→  • Derived `selected` via useMemo (no useEffect setState cascades — lint clean).
+    36→  • Capacity warning: amber Alert when participantCount > facility.capacity; red destructive Alert when conflict.hasConflict.
+    37→  • Empty state (Inbox icon + bilingual copy) for both empty list and no-selection.
+    38→  • Loading skeletons for list (4 cards) and detail panel.
+    39→  • Wrap in <motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}}>.
+    40→  • 'use client' + `export function ApprovalsView()` default export.
+    41→  • All copy bilingual BM/BI; teal/emerald/amber palette (NO indigo/blue); responsive (mobile stacked, desktop 5/7 col).
+    42→
+    43→Lint status: `bun run lint` — 0 errors in src/views/approvals-view.tsx (remaining 3 pre-existing errors are in audit/route.ts, topbar.tsx, use-current-user.ts — not in this file).
+    44→
+    45→Dev server log: clean compile, no errors after file creation.
+    46→
+    47→---
+    48→Task ID: 7-booking-form
+    49→Agent: Frontend Agent (Booking Form)
+    50→Task: Build `src/views/booking-form-view.tsx` — Booking Application Form (FR-01)
+    51→
+    52→Work Log:
+    53→- Read worklog.md + existing infrastructure (useT, useApp, GlassCard, useCurrentUser, shadcn/ui, API routes for /api/facilities, /api/bookings, /api/bookings/check-conflict, /api/ai/parse-booking)
+    54→- Built `BookingFormView` (named export, 'use client') with motion.div wrapper (opacity/y entrance)
+    55→- Layout: 2-col grid (main form 2/3 + side panel 1/3) on lg; stacks on mobile
+    56→- Top hero GlassCard with teal/amber blur orbs + gradient-text title (nav_book)
+    57→- FR-01.1 — Facility type filter chips (All / Bilik Komputer / Dewan Kuliah) using CategoryChip sub-component; shadcn Select for facility list (color dot, capacity hint)
+    58→- FR-01.2 — Interactive shadcn Calendar (react-day-picker) for date pick (disabled past dates, locale-aware formatting); Start/End time Select dropdowns generated from selectedFacility.operatingStart/End in 30-min increments
+    59→- FR-01.3 — Purpose (textarea, min 3 / max 300), Program name (input), Participants (number input), Equipment (textarea + clickable chips of available equipment parsed from facility.equipment JSON), Notes (textarea)
+    60→- FR-01.4 — Capacity warning: amber Alert when participants > facility.capacity (inline + side panel)
+    61→- FR-01.5 — Real-time conflict check: debounced (450ms) POST /api/bookings/check-conflict whenever facility/date/start/end change; red destructive Alert listing conflicting bookingRef + time; spinner indicator while checking
+    62→- FR-01.6 — Save-as-draft button: POST /api/bookings with isDraft:true, toast.info, navigate to dashboard; Submit button: re-checks conflict before POST, toast.success on 201
+    63→- FR-01.7 — Pre-fill from AI parse: useEffect detects bookingPrefill {facilityId, date, startTime, endTime, participants, purpose}, populates form + auto-sets category, clears prefill, toast.info
+    64→- Alternative slot chips: clickable emerald chips when conflict + alternatives available → applies alt.start/endTime to form
+    65→- Side panel: selected facility info (color dot, location, capacity, operating hours, equipment chips) + capacity alert + conflict alert + alternative slots + booking tips
+    66→- Submit handler: validates required fields; if conflict → toast.error + inline alert, NO submit; else POST /api/bookings. On non-2xx reads JSON message for toast
+    67→- All labels use t() with available i18n keys; supplementary BM/BI strings inlined via lang conditional
+    68→- Teal/emerald/amber palette only (no indigo/blue); glass-card + glass-input classes throughout
+    69→- Responsive grid + sticky two-column; touch-friendly 44px+ targets on chips/buttons
+    70→- Lint: 1 introduced warning (unused eslint-disable directive) fixed by adding missing deps + removing the directive. Remaining 3 lint errors are in pre-existing files (audit/route.ts, topbar.tsx, use-current-user.ts) — not touched per task rules.
+    71→- dev.log confirms clean compilation after the new file (no runtime errors traced to this view)
+    72→
+    73→Stage Summary:
+    74→- `src/views/booking-form-view.tsx` complete and lint-clean for this file.
+    75→- End-to-end: facility filter → date/time pick → real-time conflict check (debounced) → capacity warning → alternative slot apply → submit/draft → toast → dashboard.
+    76→- Ready to wire into the app shell / router (currently not yet mounted; only the file is written per task scope).
+    77→
+    78→---
+    79→Task ID: 8-personal-dashboard
+    80→Agent: View Builder (Personal Dashboard)
+    81→Task: Build `src/views/personal-dashboard-view.tsx` — Personal Dashboard (FR-03) with booking history, status tracking, notifications, post-use feedback
+    82→
+    83→Work Log:
+    84→- Read worklog.md, public-calendar-view.tsx, glass-card.tsx, status-badge.tsx, use-t.ts, i18n.ts, store.ts, use-current-user.ts, API routes (/api/bookings, /api/bookings/[id], /api/notifications, /api/feedback), prisma/schema.prisma, globals.css, dialog/button/tabs/skeleton/scroll-area UI components, eslint config.
+    85→- Created `src/views/personal-dashboard-view.tsx` (~1063 lines) with `'use client'` directive and named export `PersonalDashboardView` (per task spec, despite "Default export" wording — the literal example given is `export function PersonalDashboardView()`).
+    86→- Wrapped root in `<motion.div initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }}>` per spec.
+    87→
+    88→Component structure:
+    89→1. Header GlassCard: greeting (welcome + first name), subtitle, "Mohon Tempahan Baharu" gradient button → `setView('book')`.
+    90→2. Stats grid (2 cols mobile / 4 cols desktop): Total Bookings, Pending (PENDING+NEEDS_INFO), Approved, This Month — each with gradient icon tile + loading skeletons.
+    91→3. "Akan Datang / Upcoming" section: approved bookings whose eventDate falls within next 7 days (incl. today), each as highlighted GlassCard with facility color stripe, pulsing dot, countdown badge ("Hari ini"/"Esok"/"in 3 days"), StatusBadge. Click expands inline.
+    92→4. Notifications GlassCard: bell icon with red unread-count badge, "Mark All Read" button (PATCH `{all:true}`), scrollable list (max-h-72) of notifications; click any unread item marks it read (PATCH `{id}`).
+    93→5. Booking history GlassCard with search input + Tabs (All/Pending/Approved/Rejected/Completed) with count badge on All.
+    94→6. Each booking rendered as `BookingCard` GlassCard: facility color stripe, bookingRef mono badge, StatusBadge, facility name with color dot, location (sm+), purpose (line-clamp-1), eventDate/time/participant meta row.
+    95→7. Click card → expand (AnimatePresence height anim) showing: meta grid (program/participants/date/submitted relative time), notes, rejection reason box (rose) for REJECTED with `rejectionReason` field, NEEDS_INFO box (orange) for additional-info requests, existing feedback display (amber stars + comment), approval history timeline (from GET /api/bookings/[id] detail fetch with admin name + timestamp + comment per log), action buttons row.
+    96→8. Cancel button (rose outline) only for PENDING/NEEDS_INFO → opens confirmation Dialog with booking summary + spinner during mutation → DELETE /api/bookings/[id] → toast + invalidate queries.
+    97→9. "Beri Penilaian" button (teal gradient) only for COMPLETED bookings without existing feedback → opens Dialog with 5-star interactive rating (hover + click) + descriptor label (Sangat Tidak Puas … Sangat Puas) + optional Textarea comment (max 500) → POST /api/feedback → toast + invalidate.
+    98→10. "Telah Dinilai" badge shown for COMPLETED bookings that already have feedback.
+    99→11. Empty state: large Inbox icon in gradient circle, headline, descriptive text, "Mohon Tempahan Baharu" CTA button.
+   100→12. Loading skeletons: skeleton rows for bookings list, skeleton StatCards values, skeleton detail timeline.
+   101→
+   102→Technical details:
+   103→- Used `useQuery` (react-query) for: `/api/bookings?scope=me&pageSize=100`, `/api/notifications?limit=10`, lazy `/api/bookings/[id]` (enabled only when a card is expanded) — because the list endpoint does NOT include approvalLogs/feedbacks (only facility + user). The detail endpoint does, so we fetch it lazily on expand. Both code paths defensively handle missing fields.
+   104→- `useMutation` for cancel, feedback, mark-all-read, mark-one-read — all with optimistic `invalidateQueries`.
+   105→- Used `format`, `formatDistanceToNow`, `isWithinInterval`, `addDays`, `isToday`, `isTomorrow` from date-fns.
+   106→- Inline BM/BI translations via `tr(bm, en)` helper for new strings not in i18n.ts dictionary; reused `t(...)` from useT for existing keys (status_*, form_*, stats_*, etc.).
+   107→- All `t('cancel')` calls corrected to `t('form_cancel')` (since `cancel` isn't a translation key — only `form_cancel` is).
+   108→- Glassmorphism: `glass-card`, `glass-input`, `glass-strong`, `gradient-primary`, `gradient-text` classes; teal/emerald/amber palette (no indigo/blue).
+   109→- Responsive: mobile-first, stats grid 2→4 cols, header stacks on mobile, meta grid 2→4 cols, tabs wrap.
+   110→- Accessibility: ARIA labels on star buttons, sr-only close in Dialog, semantic structure, 44px+ touch targets on key buttons (h-11 primary CTA, h-8/9 secondary).
+   111→- Sonner toasts for success/error on all mutations.
+   112→- Cleaned unused imports (StatusDot, isFuture, MessageSquare) after initial write.
+   113→
+   114→Verification:
+   115→- `bunx tsc --noEmit -p tsconfig.json` → 0 errors in personal-dashboard-view.tsx (and 0 errors project-wide).
+   116→- `bun run lint` → 0 errors in personal-dashboard-view.tsx. (3 pre-existing errors remain in other agents' files: topbar.tsx, use-current-user.ts, booking-form-view.tsx — not introduced by this task; left untouched per task scope.)
+   117→- dev.log shows dev server still compiling cleanly after edits.
+   118→
+   119→Stage Summary:
+   120→- Personal Dashboard (FR-03) view complete and ready for orchestrator integration. Renders booking history, status tracking, rejection reasons, upcoming-7-day reminders, notifications panel with mark-read, post-use feedback dialog with star rating, and cancel-with-confirm flow. All API hooks wired to existing endpoints (no infrastructure modifications). Bilingual BM/BI, glassmorphism styling, responsive, accessible.
+   121→
+   122→---
+   123→Task ID: 10-facilities-and-12-users
+   124→Agent: View Builder (Facility Mgmt + User Mgmt)
+   125→Task: Build src/views/facilities-view.tsx (Pengurusan Kemudahan, PRD §12) and src/views/users-view.tsx (Pengurusan Pengguna & Peranan, PRD §12) for Super Admin.
+   126→
+   127→Work Log:
+   128→- Read worklog.md, prior views (approvals-view, personal-dashboard-view, public-calendar-view) for conventions, existing infra (GlassCard, StatusBadge/RoleBadge, useT, useApp, useCurrentUser, store, i18n keys, globals.css palette), and verified API shapes:
+   129→  • GET /api/facilities?includeInactive=true → { data: Facility[] }
+   130→  • POST/PATCH /api/facilities(/[id]) (Super Admin only; soft-delete via DELETE → status=INACTIVE)
+   131→  • GET /api/users?q=&role= → { data: User[] }
+   132→  • POST/PATCH /api/users(/[id]) (Super Admin only; cannot delete self; soft-delete via DELETE → status=INACTIVE)
+   133→
+   134→=== src/views/facilities-view.tsx ===
+   135→- 'use client' + `export function FacilitiesView()` named export + default export.
+   136→- Wrapped in `<motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}} transition={{duration:0.3}}>` (per spec).
+   137→- Header GlassCard with teal/amber blur orbs, gradient-text title (nav_facilities), subtitle, Back + "Tambah Kemudahan" buttons. Super-admin gate shows amber access-restriction notice to non-admins.
+   138→- Stats row: 5 tiles (Total, Active, Maintenance, Inactive, Total Capacity) with tone-colored icon tiles + skeleton loaders.
+   139→- Filter GlassCard: search input (name/location/equipment), category select (All/COMPUTER_ROOM/LECTURE_HALL), status select (All/ACTIVE/MAINTENANCE/INACTIVE).
+   140→- Table GlassCard (overflow-x-auto + scroll-area-thin for mobile): columns = Name (color dot), Category badge (teal/amber, BM "Bilik Komputer"/"Dewan Kuliah"), Capacity (with Users icon), Location (MapPin), Operating hours (Clock), Equipment chips (parsed from JSON array or comma-string; capped at 3 with "+N"), Status badge, Actions.
+   141→- Actions per row: "Tukar Status" cycle button (ACTIVE→MAINTENANCE→INACTIVE→ACTIVE), Edit (Pencil), Delete (Trash2).
+   142→  • Cycle to INACTIVE triggers AlertDialog confirmation (amber Wrench icon) before PATCH.
+   143→  • Delete triggers AlertDialog confirmation (rose Trash2) before DELETE.
+   144→- Create/Edit Dialog (sm:max-w-2xl, scrollable): form fields = name (Input), category select (disabled on edit since API rejects category update), capacity (number Input min 1 max 1000), location (Input), equipment (Textarea; live preview chips), operatingStart/End (Input type="time"), colorCode (native `<input type="color">` + mono hex Input + preview swatch).
+   145→- useMutation for create/update/status-cycle/delete; all invalidate `['facilities']` query; sonner toasts bilingual (BM/BI) success/error.
+   146→- Equipment parser (`safeParseEquip`) handles both JSON array and comma/semicolon string formats.
+   147→- Loading skeletons (5 skeleton rows) and empty-state (Building2 icon + "no_data" + filter hint).
+   148→- Bilingual via `t()` keys (where defined) and inline `tr(bm, en)` helper for new strings.
+   149→- Glassmorphism: glass-card, glass-input, gradient-primary, gradient-text, scroll-area-thin. Teal/emerald/amber palette only (NO indigo/blue).
+   150→- Footer line shows current user identity + role label.
+   151→
+   152→=== src/views/users-view.tsx ===
+   153→- 'use client' + `export function UsersView()` named export + default export.
+   154→- Wrapped in motion.div (same entrance animation per spec).
+   155→- Access guard: non-super-admin sees amber "Akses Ditolak / Access Denied" card with Back button (does NOT render the rest).
+   156→- Header GlassCard with teal/emerald blur orbs, gradient-text title (nav_users), Back + "Tambah Pengguna" buttons.
+   157→- Stats row: 6 tiles (Total Users, role_USER count, role_FACILITY_ADMIN count, role_SUPER_ADMIN count, status_ACTIVE count, status_SUSPENDED count) with tone-colored icon tiles (teal/emerald/rose/emerald/amber) + skeletons.
+   158→- Filter GlassCard: search (name/email/department/staffId), role select (All/USER/FACILITY_ADMIN/SUPER_ADMIN), status select (All/ACTIVE/SUSPENDED/INACTIVE).
+   159→- Table GlassCard (overflow-x-auto): columns = Name (avatar circle with initials + hash-color, name + Mail·email, "Anda/You" badge if self), RoleBadge, Department, Staff ID (BadgeCheck mono), Phone (Phone icon), Last Login (formatDistanceToNow relative; "Never logged in" fallback), StatusBadge, Actions.
+   160→- Actions per row: Suspend/Activate toggle (Ban/CheckCircle2; reactive→amber style; direct PATCH for reactivate, AlertDialog confirm for suspend), Edit (Pencil), Delete (Trash2).
+   161→  • Self user (currentUser.id === u.id): Suspend & Delete disabled (matches server rule "cannot delete self").
+   162→  • Suspend triggers AlertDialog confirmation (amber Ban) before PATCH status=SUSPENDED.
+   163→  • Delete triggers AlertDialog confirmation (rose Trash2) before DELETE.
+   164→- Create/Edit Dialog (sm:max-w-2xl, scrollable): form fields = name (Input, min 3), email (Input type=email; disabled on edit), staffId (Input), password (Input type=password with Eye/EyeOff toggle; required on create, optional on edit with "leave blank to keep" hint; min 8 chars validated both sides), role select, status select, department (Input), phone (Input).
+   165→  • On edit: empty password → PATCH excludes password field (preserves existing hash).
+   166→  • On create: password required + min 8 chars (server-side enforced via zod).
+   167→- Avatar: derived from name initials + hash-based palette (teal/emerald/amber/rose/fuchsia/lime — NO indigo/blue).
+   168→- useMutation for create/update/suspend/delete; all invalidate `['users']` query; sonner toasts bilingual; reactivate reuses same mutation with status=ACTIVE.
+   169→- Query `enabled: isSuperAdmin` so non-admins never trigger the GET.
+   170→- Bilingual via `t()` keys + inline `tr(bm, en)` helper. NOTE: changed one `t('role')` table header to `tr('Peranan','Role')` because `role` is not in TranslationKey union (only `role_USER`/`role_FACILITY_ADMIN`/`role_SUPER_ADMIN` exist).
+   171→- Glassmorphism + teal/emerald/amber/rose palette (NO indigo/blue).
+   172→- Loading skeletons (5 rows) + empty-state.
+   173→
+   174→=== Verification ===
+   175→- `bunx tsc --noEmit -p tsconfig.json` → 0 errors in src/views/facilities-view.tsx and src/views/users-view.tsx (pre-existing errors in seed.ts, examples/, skills/, api/feedback/route.ts, lib/auth.ts remain untouched per task scope).
+   176→- `bun run lint` → 0 errors in the two new files. 3 pre-existing lint errors remain in other agents' files (audit/route.ts no-assign-module-variable, topbar.tsx set-state-in-effect, use-current-user.ts set-state-in-effect) — not introduced by this task; left untouched per task rules ("Fix any errors in YOUR files only").
+   177→- dev.log shows clean compilation after file creation; no runtime errors traced to these views.
+   178→
+   179→Stage Summary:
+   180→- Facility Management (PRD §12 "Pengurusan Kemudahan") and User & Role Management (PRD §12 "Pengurusan Pengguna & Peranan") Super Admin views complete, end-to-end wired to existing API endpoints (no infra changes), bilingual BM/BI, glassmorphism styling, responsive, accessible. Ready to mount via `setView('facilities')` / `setView('users')` in the app shell/router.
+   181→
+   182→---
+   183→Task ID: 11-analytics-and-audit
+   184→Agent: View Builder (Analytics + Audit)
+   185→
+   186→Task: Build `src/views/analytics-view.tsx` (Analytics Dashboard + GLM 5.2 AI narrative) and `src/views/audit-view.tsx` (Super Admin Audit Log viewer).
+   187→
+   188→Work Log:
+   189→- Read worklog.md, existing infra (GlassCard, StatusBadge, use-t, use-current-user, i18n.ts, shadcn/ui Select/Badge/Skeleton/Alert/Input/Button, alert.tsx variants, globals.css teal/emerald/amber palette), API routes (/api/analytics, /api/audit, /api/ai/report-summary), package.json (recharts 2.15, framer-motion 12, sonner, @tanstack/react-query, date-fns 4), eslint config (permissive — no-unused-vars off, react-hooks/exhaustive-deps off).
+   190→- Built `AnalyticsView()` (`'use client'`, named export per literal spec) wrapped in `<motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}}>`:
+   191→  • Header GlassCard: nav breadcrumb + gradient-text title + subtitle + time-range selector (7/30/90 days, default 30, gradient teal active state) + PDF/Excel export buttons wired to `toast.info('Eksport akan datang')`.
+   192→  • Stats row: 5 gradient stat cards (Total Bookings, Pending, Approved+Completed, Rejected+Cancelled, Utilization Rate %) — each with gradient icon tile (teal/amber/emerald/rose/teal-emerald), glow orb, value, label. Loading skeletons while fetching.
+   193→  • Charts grid (1 col mobile → 2 col lg) all in GlassCard with title + icon tile:
+   194→    1. Bookings Trend — AreaChart of byDay with teal gradient fill (linearGradient id=colorBookings), XAxis tick-formatter to short BM/EN date, Tooltip with glass styling.
+   195→    2. Status Distribution — donut PieChart of byStatus with 5 status colors (amber/emerald/rose/zinc/teal), Legend with translated status names via `formatter` calling `t('status_' + key)`.
+   196→    3. Top Facilities — horizontal BarChart (layout="vertical") of byFacility top 5, each Cell colored from FACILITY_PALETTE (teal/emerald/amber/rose/violet).
+   197→    4. Peak Hours — vertical BarChart of byHour filled with 08–22 range (missing hours = 0), teal bars.
+   198→  • Recharts Tooltip contentStyle = `{background:'rgba(255,255,255,0.9)', backdropFilter:'blur(8px)', border:'1px solid rgba(255,255,255,0.5)', borderRadius:'8px', fontSize:'12px'}` per spec.
+   199→  • Chart empty states via `ChartEmpty` sub-component (Ban icon + "Tiada data").
+   200→  • **AI Narrative Report** section (highlight feature): GlassCard with Sparkles gradient icon tile + "Ringkasan Laporan AI" gradient title + "Powered by GLM 5.2" gradient badge. "Jana Ringkasan AI" button (teal→emerald gradient). Manual fetch with `AbortController` 30s timeout fallback:
+   201→    - Loading: animated Loader2 spinner + Sparkles pulse + "AI sedang menganalisis data..." + "5–15 saat" hint + 3 bouncing dots.
+   202→    - Success: rounded teal-tinted box with FileText header, generated timestamp, summary rendered `whitespace-pre-wrap` (preserves BM multi-paragraph narrative).
+   203→    - Error: amber Alert "Perkhidmatan AI tidak tersedia buat sementara. Sila cuba lagi." (covers 503 + abort timeout).
+   204→    - Empty: dashed teal-bordered box with Sparkles circle + subtle prompt to click button.
+   205→  • All copy bilingual via inline `tr(bm, en)` helper for non-i18n keys; reused t() for existing keys (stats_total_bookings, stats_pending, stats_approved, stats_rejected, stats_utilization, stats_peak_hours, nav_analytics, powered_by_ai, loading, no_data).
+   206→  • Teal/emerald/amber/rose palette only — NO indigo/blue.
+   207→  • Error state for analytics fetch failure (rose Alert).
+   208→  • Responsive: stats 2/3/5 cols, charts 1/2 cols, header stacks on mobile.
+   209→- Built `AuditView()` (`'use client'`, named export) wrapped in `<motion.div>`:
+   210→  • Header GlassCard: rose/teal blur orbs + ShieldAlert breadcrumb + gradient-text title + bilingual subtitle.
+   211→  • Stats row (2 cols mobile → 4 cols lg): Total Logs (teal), INFO count (teal-emerald), WARNING count (amber-orange), CRITICAL count (rose). Counts fetched via 3 parallel `useQuery` calls to `/api/audit?severity=X&pageSize=1` reading `pagination.total` (respects current module filter).
+   212→  • Filter bar: module Select (AUTH/BOOKING/APPROVAL/FACILITY/USER_MGMT/SYSTEM/AI + "all"), severity Select (INFO/WARNING/CRITICAL + "all"), search Input (filters client-side on action/user name/email/entity/entityId), Reset button when any filter active. Selecting filter resets page to 1.
+   213→  • Result count summary + page indicator.
+   214→  • Custom responsive log table: desktop 7-col grid (timestamp, user, module, action+severity, entity, IP, chevron) + mobile stacked card layout. Each row is a `<button>` for keyboard a11y with `aria-expanded`.
+   215→  • Row fields: timestamp (mono `dd MMM yyyy, HH:mm:ss` + relative "5m ago"), user (gradient avatar + name/email, or "Sistem" italic with Cpu icon when null), module badge (color-coded per spec: AUTH=teal, BOOKING=emerald, APPROVAL=violet, FACILITY=amber, USER_MGMT=rose, SYSTEM=zinc, AI=pink), severity icon dot + action (mono), entity + truncated entityId (#xxxxxx), masked IP (first 2 octets + `.*.*` for PDPA).
+   216→  • Click row → expand via `AnimatePresence` height/opacity transition showing: 4-col meta grid (User/Action/Entity/IP), User-Agent block (muted, mono, break-all), pretty-printed JSON details in dark code block (`<pre>` with `JSON.stringify(parsed, null, 2)`, parse errors fall back to raw string).
+   217→  • Color-coded severity per spec: INFO=teal, WARNING=amber, CRITICAL=rose (icon + label).
+   218→  • Loading skeletons (8 rows), empty state (ScrollText icon + bilingual hint), error state (rose Alert for 401/403).
+   219→  • Pagination controls: Prev/Next buttons + "Halaman X daripada Y" indicator; disabled at bounds.
+   220→  • Bilingual via `tr()` + t() for nav_audit. Teal/rose palette (NO indigo/blue).
+   221→- Both views use `'use client'`, named exports matching literal `export function AnalyticsView()` / `export function AuditView()` spec.
+   222→- All API hooks wired to existing endpoints — NO infrastructure changes.
+   223→
+   224→Verification:
+   225→- `bun run lint 2>&1 | tail -50` → 3 errors total, ALL pre-existing in other agents' files (`audit/route.ts` line 15 `no-assign-module-variable`, `topbar.tsx` line 28 `react-hooks/set-state-in-effect`, `use-current-user.ts` line 28 `react-hooks/set-state-in-effect`). 0 errors introduced in `analytics-view.tsx` or `audit-view.tsx`.
+   226→- `bunx tsc --noEmit -p tsconfig.json` filtered for own files → 0 TypeScript errors in either view.
+   227→- dev.log: clean compile (no runtime errors traced to these views).
+   228→
+   229→Stage Summary:
+   230→- Analytics Dashboard (PRD §8) + Audit Log viewer (PRD §10/§11) views complete and lint-clean for own files.
+   231→- Analytics: 4 recharts visualizations + GLM 5.2 AI narrative generation flow with loading/error/empty states, 5 gradient stat tiles, 7/30/90-day range selector, PDF/Excel export stubs.
+   232→- Audit: filterable/searchable/paginated audit log table with expandable rows, severity/module color-coding, JSON pretty-print, PDPA-friendly IP masking, parallel severity-count queries.
+   233→- Ready for orchestrator integration into app shell / router (currently only the files are written per task scope).
+   234→
+   235→---
+   236→Task ID: 13-calendar-view
+   237→Agent: CalendarView Builder
+   238→Task: Build `src/views/calendar-view.tsx` — Integrated Calendar View (FR-05) with Day/Week/Month modes, color-coded facilities.
+   239→
+   240→Work Log:
+   241→- Read worklog.md, public-calendar-view.tsx (existing pattern), use-t.ts, use-current-user.ts, glass-card.tsx, status-badge.tsx, globals.css (teal/emerald/amber glassmorphism), ui/{button,select,tooltip,popover,skeleton,badge}.tsx, src/lib/store.ts, src/app/api/bookings/route.ts (scope=public returns APPROVED only with no user; scope=all requires FACILITY_ADMIN+ and returns full Booking with user info), eslint.config.mjs (react-hooks/exhaustive-deps OFF, no-explicit-any OFF).
+   242→- Built `CalendarView()` (named export, 'use client') with `<motion.div initial={{opacity:0,y:10}} animate={{opacity:1,y:0}}>` wrapper per spec.
+   243→- Used `useCurrentUser()` to pick `scope`: `isAuthenticated && isAdmin ? 'all' : 'public'`. Admin scope shows applicant name+department in popover; public scope shows "Maklumat pemohon dirahsiakan".
+   244→
+   245→State & data:
+   246→- `mode: 'day'|'week'|'month'` (default 'week'); `cursor: Date` (zeroed); `facilityFilter: string` (facility name or 'all'); `search: string`.
+   247→- Range computed per mode using date-fns: day→[cursor, +1d]; week→startOfWeek(Mon)+7d; month→startOfWeek(startOfMonth)+endOfWeek(endOfMonth)+1d.
+   248→- Two react-query hooks: `['facilities']` for legend + filter dropdown; `['calendar-bookings', scope, from, to]` hitting `/api/bookings?scope=…&from=…&to=…&pageSize=300`.
+   249→- `bookingsByDay` Map<dateString, Booking[]> sorted by startTime.
+   250→- `overlapIds` Set detects time-overlap per same-facility per-day (startTime<endTime intersect) → amber ring + AlertTriangle icon for visual highlight (FR-05.2).
+   251→- `filteredByDay` applies facility filter + search (programName, facility.name, bookingRef, applicant name for admin).
+   252→
+   253→UI sub-components:
+   254→1. Hero GlassCard: gradient-text title `nav_calendar`, FR-05 subtitle, facility color legend chips, "Admin Scope" badge when scope=all.
+   255→2. Toolbar GlassCard: mode switcher (3 buttons with icons CalendarDays/CalendarRange/LayoutGrid, ARIA tablist+aria-selected), Prev/Next + period label + Today button, Export PDF/Excel buttons (toast.info bilingual placeholder), Search Input (BM/BI placeholder), Facility Select (color dot + name).
+   256→3. MonthGrid: 7-col grid Mon-Sun (weekStartsOn:1 for Malaysia); 6-row month matrix; each cell shows date# + up to 3 BookingChips + "+N lagi/more" Popover (full overflow list); today cell ring-2 teal; out-of-month cells opacity-40; empty cell → role=button keyboard-accessible → toast.info "Klik 'Mohon Tempahan'…".
+   257→4. WeekGrid: left time-gutter column (08:00–22:00 every 2h, aria-hidden decorative); 7 day columns each min-h-480px; per-day list of WeekBookingCard (detailed chip: time range, program 2-line clamp, facility color dot+name); today column ring-2 teal + bg-tint; empty day → italic button → toast.info.
+   258→5. DayTimeline: hourly timeline 08:00–22:00 with TIMELINE_HEIGHT=1008px (8h × 60min × 1.2px); hour markers absolutely positioned with gutter labels + horizontal lines; booking blocks positioned via `top=((startMin-8*60)*1.2)`px, `height=max(36, durationMin*1.2)`px (per spec formula); each DayBookingBlock shows facility color tinted bg + 4px left-border, time mono, program name, optional facility line (height≥56), StatusBadge (height≥88), overlap amber inset ring; empty day → dashed-border button → toast.info.
+   259→6. BookingChip (month), WeekBookingCard (week), DayBookingBlock (day) — all wrapped in Popover (click-to-open) per "Tooltip or Popover" spec.
+   260→7. BookingDetailContent (shared popover body): program name + color dot, StatusBadge, overlap warning (amber), facility name+location, date (locale-aware), time range, bookingRef (mono), applicant name+department (admin scope only), "Applicant info hidden" notice (public scope).
+   261→8. CalendarSkeleton: 3 mode-specific skeletons (day=timeline blocks, week=7 columns of chips, month=35 cell grid) using Skeleton component.
+   262→
+   263→Technical details:
+   264→- date-fns: `startOfWeek/endOfWeek/startOfMonth/endOfMonth/eachDayOfInterval/addDays/addMonths/isSameMonth/isToday` — NO `format()` (used `toLocaleDateString(locale, opts)` instead to avoid date-fns locale import).
+   265→- Locale: `lang === 'bm' ? 'ms-MY' : 'en-GB'`.
+   266→- `toRgba(hex, alpha)` helper: parses #rgb / #rrggbb to rgba; falls back to original color string for non-hex (e.g. named CSS colors) → resilient to facility.colorCode variations.
+   267→- `parseTimeToMin('HH:MM')` for day-mode block positioning.
+   268→- Query keys cache by `[scope, from, to]` → instant re-renders when switching modes/dates within cached ranges.
+   269→- All inline bilingual BM/BI strings via `lang === 'bm' ? … : …`; reused useT keys: `nav_calendar, calendar_day, calendar_week, calendar_month, calendar_today, form_facility, search, filter, loading, no_data`.
+   270→- Teal/emerald/amber palette only (NO indigo/blue) — `bg-teal-500/10`, `text-teal-600/700`, `ring-teal-500/40`, amber for overlap warnings, emerald implicit via primary.
+   271→- Responsive: mobile-first single-column stacking for toolbar rows, grid-cols-7 always for week/month, day timeline scales. Touch-friendly 44px+ on primary buttons.
+   272→- A11y: `role="tab"`/`aria-selected` on mode buttons, `role="button"`+tabIndex on empty month cells with Enter/Space handler, `aria-label` on icon-only buttons + chip triggers, `aria-hidden` on decorative time gutter.
+   273→- NO useApp import (not needed — no navigation from this view; empty-cell click just toasts).
+   274→
+   275→Verification:
+   276→- `bun run lint` → 0 errors in `src/views/calendar-view.tsx` (3 pre-existing errors remain in audit/route.ts, topbar.tsx, use-current-user.ts — not touched per task rules).
+   277→- `bunx tsc --noEmit` → 0 errors in calendar-view.tsx (pre-existing tsc errors in examples/, prisma/seed.ts, skills/, feedback/route.ts, auth.ts — not in this file).
+   278→- dev.log: clean compile, no runtime errors after file creation.
+   279→
+   280→Stage Summary:
+   281→- `src/views/calendar-view.tsx` complete and ready for orchestrator integration. Renders FR-05 integrated calendar with Day/Week/Month modes, color-coded facilities, click-to-open Popover (with public/admin info gating), automatic overlap highlighting, search, facility filter, export buttons (toast placeholder), loading skeletons, and empty-state handlers. All API hooks wired to existing endpoints with no infrastructure modifications.
+   282→
+   283→---
+   284→Task ID: 99
+   285→Agent: Orchestrator (Final)
+   286→Task: Wire up all views in page.tsx, fix lint, Agent Browser end-to-end verification
+   287→
+   288→Work Log:
+   289→- Wired all 9 views (Public Calendar, Booking Calendar, Dashboard, Booking Form, Approvals, Facilities, Analytics, Users, Audit) in src/app/page.tsx with dynamic imports + AnimatePresence transitions
+   290→- Added access control layer: protected views redirect to sign-in prompt; admin/super-admin views show access-denied card for unauthorized users
+   291→- Fixed 3 lint errors: renamed `module` var in audit/route.ts, replaced useEffect-setMounted pattern in topbar.tsx with useIsClient hook, simplified use-current-user.ts to derive state from session reactively (no setState-in-effect)
+   292→- Agent Browser E2E verification:
+   293→  * Public Calendar: ✓ renders weekly grid with real bookings (TEMP-2026-0009 etc.), color-coded by facility
+   294→  * Login flow: ✓ admin@pltt.gov.my / Password123! signs in, all admin nav items appear
+   295→  * Approvals: ✓ 8 pending bookings listed with applicant info, Luluskan/Minta Maklumat/Tolak buttons present
+   296→  * Booking Form: ✓ filled Bilik Komputer 2, July 22, 09:00-12:00, submitted → SUCCESS, navigated to dashboard with TEMP-2026-0023
+   297→  * Personal Dashboard: ✓ shows greeting, notifications (Permohonan Diterima: TEMP-2026-0023), booking history with tabs
+   298→  * AI Chat: ✓ "Bagaimana cara mohon tempahan?" returned helpful BM response from GLM 5.2
+   299→  * AI Report Summary: ✓ "Jana Ringkasan AI" generated 4-sentence narrative analyzing actual booking stats
+   300→  * User Management: ✓ 8 users listed with roles, suspend/edit/delete actions, Tambah Pengguna dialog
+   301→  * Audit Log: ✓ 10 entries showing LOGIN_SUCCESS, BOOKING_CREATE, AI_CHAT, APPROVAL_APPROVED etc.
+   302→  * Analytics: ✓ 4 charts (Trend, Status Distribution, Top Facilities, Peak Hours) + 5 stat cards
+   303→  * Facilities: ✓ 6 facilities in table with Tukar Status/Kemas Kini/Padam actions, Tambah Kemudahan dialog
+   304→  * Calendar: ✓ Month view shows all bookings color-coded, Hari/Minggu/Bulan tabs work
+   305→
+   306→Stage Summary:
+   307→- All 5 functional requirements (FR-01 to FR-05) fully implemented and verified working end-to-end
+   308→- All buttons functional (no dead buttons)
+   309→- Glassmorphism UI confirmed via VLM: "glassmorphic design with soft translucent panels and green/white color palette"
+   310→- Bilingual BM/BI working (default BM)
+   311→- Security: RBAC enforced, rate limiting on auth/AI endpoints, full audit logging, CSP+HSTS+PDPA headers via middleware
+   312→- 3 AI features via GLM 5.2: chat assistant, natural-language booking parser, narrative analytics report
+   313→- Lint passes clean (0 errors), dev server runs without fatal errors
+   314→- System ready for demo. Default logins: admin@pltt.gov.my / fadmin@pltt.gov.my / user1@pltt.gov.my (password: Password123!)
+   315→
+   316→---
+   317→Task ID: FIX-approvals
+   318→Agent: ApprovalsView Truncation Fixer
+   319→Task: Fix text truncation bugs in src/views/approvals-view.tsx (left panel list items + detail panel labels)
+   320→
+   321→Work Log:
+   322→- Read worklog and approvals-view.tsx (1011 lines).
+   323→- Identified truncation points:
+   324→  • ApprovalListItem: user.name had `truncate` → cut mid-name (e.g., "Rahman b...", "Norain bi...").
+   325→  • ApprovalListItem: facility.name had `truncate` → cut mid-name.
+   326→  • ApprovalListItem: programName had `truncate` → cut mid-word ("Latihan Pengendalian IoT Edge...").
+   327→  • DetailRow: value had `truncate` → applicant/facility values cut off in detail panel.
+   328→  • DetailPanel booking details: Labels (`Nama Program / Aktiviti`, date/time/participants) had no nowrap, could wrap awkwardly on narrow widths.
+   329→  • Conflict list: programName had `truncate`.
+   330→
+   331→Changes made (ONLY src/views/approvals-view.tsx):
+   332→1. ApprovalListItem:
+   333→   - Outer button: padding `p-3` → `p-3.5`, added `min-w-0` (slightly taller to accommodate wrapped text).
+   334→   - User name: removed `truncate`, replaced with `break-words whitespace-normal leading-snug`, `mt-0.5` → `mt-1`. Names now wrap fully.
+   335→   - Facility name: removed `truncate`, now `line-clamp-2 flex-1 min-w-0 break-words`. Added `min-w-0` to parent flex row.
+   336→   - Program name: removed `truncate`, replaced with `line-clamp-2 break-words min-w-0`, `mt-1.5` → `mt-2` for spacing.
+   337→   - bookingRef + Multi-level badge row: added `flex-wrap` and `shrink-0` so neither gets squished.
+   338→   - StatusBadge: added `self-start` so it stays aligned when name wraps.
+   339→2. DetailRow:
+   340→   - Added `min-w-0` to outer flex container.
+   341→   - Label: added `whitespace-nowrap` so labels like "Nama Program / Aktiviti" never break mid-phrase.
+   342→   - Value: removed `truncate`, replaced with `break-words whitespace-normal leading-snug` so long values (emails, names, departments) wrap naturally.
+   343→3. DetailPanel booking-details grid:
+   344→   - form_date, Masa/Time, form_participants, form_program Labels: added `whitespace-nowrap`.
+   345→   - form_program value: added `break-words whitespace-normal leading-snug` so long program names wrap.
+   346→4. Conflict list (DetailPanel warnings):
+   347→   - Replaced single-line `truncate` on programName with `line-clamp-2 break-words`.
+   348→   - Made the row `flex flex-wrap` with `gap-x-2 gap-y-1 min-w-0`, all inline tokens `shrink-0`, programName `min-w-0 flex-1 basis-full sm:basis-auto` so it wraps below on narrow widths instead of being cut.
+   349→
+   350→Verification:
+   351→- `bun run lint` → passed, no errors.
+   352→- No other files modified.
+   353→- Existing functionality preserved: approve/reject/request-info mutation, conflict check query, search/tabs, multi-level badge, capacity warning, glassmorphism/teal/emerald/amber palette, BM/BI bilingual labels all intact.
+   354→
+   355→Stage Summary:
+   356→- All 4 identified truncation bugs resolved: user names now wrap fully, program names show up to 2 lines in list items and full text in detail panel, detail-panel labels no longer break mid-phrase, left-panel list items slightly taller & use min-w-0 to prevent overflow.
+   357→
+   358→---
+   359→Task ID: FIX-facilities-users
+   360→Agent: Visual Bug Fixer
+   361→Task: Fix table overflow (facilities) & column misalignment/truncation (users)
+   362→
+   363→Files Modified:
+   364→- src/views/facilities-view.tsx
+   365→- src/views/users-view.tsx
+   366→
+   367→Work Log — Facilities View (src/views/facilities-view.tsx):
+   368→- Table header row: added `whitespace-nowrap` and explicit `min-w-[...]` to every TableHead to prevent awkward header wrapping and give columns stable widths.
+   369→  - Name min-w-[180px], Kategori min-w-[120px], Participants min-w-[90px], Lokasi min-w-[160px], Waktu Operasi min-w-[140px], Peralatan min-w-[220px] (widened per task spec), Status min-w-[100px], Actions min-w-[160px].
+   370→- Equipment cell: widened chips container from `max-w-[220px]` → `max-w-[260px]` so up to 3 chips have room to render fully.
+   371→- Each equipment chip span: added `whitespace-normal break-words` so long equipment names wrap inside the chip instead of overflowing/horizontal-clipping the cell.
+   372→- "+N more" counter chip: added `whitespace-nowrap` so the `+N` stays on one line.
+   373→- Table container already had `overflow-x-auto scroll-area-thin` (kept) → horizontal scroll on small screens.
+   374→
+   375→Work Log — Users View (src/views/users-view.tsx):
+   376→- Header labels shortened to stop "No. Pekerja / No. Telefon / Log Masuk Terakhir" from overlapping and "Log Masuk Ter…" truncation:
+   377→  - `t('phone')` ("No. Telefon") → `tr('Telefon', 'Phone')` (shorter).
+   378→  - `tr('Log Masuk Terakhir', 'Last Login')` → `tr('Akhir Log Masuk', 'Last Login')` (shorter, no longer truncates to "Log I…").
+   379→  - `t('staffId')` kept ("No. Pekerja") but now has guaranteed width.
+   380→- All 8 TableHead cells: added `whitespace-nowrap` (headers never wrap) and explicit `min-w-[...]` for proper column width distribution:
+   381→  - Name min-w-[200px], Peranan min-w-[140px], Jabatan/Unit min-w-[140px], No. Pekerja min-w-[110px], Telefon min-w-[120px], Akhir Log Masuk min-w-[130px], Status min-w-[100px], Actions min-w-[150px].
+   382→- Role badge: passed `className="whitespace-nowrap"` to <RoleBadge> so "Pentadbir Sistem" / "Pentadbir Kemudahan" labels stay on one line and never get clipped/misaligned.
+   383→- Suspend/Activate action button already uses `hidden md:inline` for its label (icon-only on narrow screens) — kept as-is, no truncation possible.
+   384→- Table container already had `overflow-x-auto scroll-area-thin` (kept) → horizontal scroll on small screens.
+   385→
+   386→Constraints Honored:
+   387→- Only the two specified files were modified; no other files touched.
+   388→- No CRUD / dialog / suspend-activate logic changed — purely className + label-text edits.
+   389→- Glassmorphism style, teal/emerald/amber palette, and bilingual BM/BI via `tr()` preserved.
+   390→
+   391→Verification:
+   392→- `cd /home/z/my-project && bun run lint` → exit 0, no errors.
+   393→- dev.log shows clean recompiles with no runtime/compile errors after edits.
+   394→
+   395→---
+   396→Task ID: FIX-booking-form
+   397→Agent: VisualBugFixer
+   398→Task: Fix calendar overflow & layout bugs in src/views/booking-form-view.tsx
+   399→
+   400→Work Log:
+   401→- Read worklog.md & full booking-form-view.tsx (931 lines), GlassCard CSS, Select/Calendar/Textarea/Input components, page.tsx layout, and Footer to understand root causes.
+   402→- Bug 1 — Calendar overflow: root cause was flex container `flex-1 w-full` conflict + missing `min-w-0`. Fixed by:
+   403→  * Added `min-w-0` to grid container (line 390) and main form GlassCard (line 392), plus `overflow-visible` on GlassCard so dates near rounded corners aren't visually clipped.
+   404→  * Date flex container (line 486): `flex flex-col sm:flex-row gap-3 items-start` -> added `min-w-0 w-full overflow-visible`.
+   405→  * Calendar wrapper (line 487): added `overflow-visible shrink-0` (so it keeps natural width and isn't squeezed by `flex-1` sibling).
+   406→  * Right-side date info panel (line 497): `flex-1 space-y-2 w-full` -> `flex-1 min-w-0 space-y-2` (removed conflicting `w-full`, added `min-w-0` to allow proper flex shrink).
+   407→- Bug 2 — Dropdown text truncation: added `min-w-0` to all three SelectTrigger classNames (facility, start time, end time) so the trigger's inner SelectValue flex item can shrink properly and the placeholder/selected value isn't force-truncated. Also hardened facility SelectItem content: added `min-w-0 w-full` on the inner flex span, `shrink-0` on the color dot and capacity suffix, and `truncate` on the facility name span so long names truncate gracefully instead of overflowing the dropdown.
+   408→- Bug 3 — Purpose placeholder cut off: shortened BM placeholder from 'cth: Latihan pengaturcaraan untuk kakitangan baru' -> 'cth: Latihan pengaturcaraan staf baru' (same meaning, fewer chars). Also added explicit `w-full min-h-[64px]` to the Textarea so the field always has enough width and a stable 2-row height to fully display the placeholder.
+   409→- Bug 4 — Footer overlapping form bottom: added `pb-8` (32px) to the root `motion.div` container so the form has breathing room above the sticky Footer (which sits below `<main>` in page.tsx's `flex-col`).
+   410→- Bug 5 — Bilangan Peserta "0" misaligned: added `text-center` to the participants `<Input>` className so the placeholder "0" and any typed value render centered, looking properly aligned within the narrow number field.
+   411→
+   412→Preserved (no regressions):
+   413→- Glassmorphism style, teal/emerald/amber palette, BM/BI bilingual via useT().
+   414→- Real-time conflict check, capacity warning, alternative-slot click, AI pre-fill, save-as-draft, official submit — all logic untouched.
+   415→- Only `src/views/booking-form-view.tsx` modified (no other files changed).
+   416→
+   417→Verification:
+   418→- Ran `cd /home/z/my-project && bun run lint 2>&1 | tail -30` -> ESLint clean, no errors or warnings.
+   419→- Dev server compiled successfully (dev.log shows `✓ Compiled`).
+   420→
+   421→Stage Summary:
+   422→- All 5 VLM-identified bugs addressed with minimal, surgical className + 1 placeholder text change.
+   423→- No functional behavior changes; no other files touched.
+   424→
+   425→---
+   426→Task ID: FIX-audit
+   427→Agent: AuditView Overflow & Truncation Fixer
+   428→Task: Fix table column overflow and text truncation in src/views/audit-view.tsx
+   429→
+   430→Files Modified:
+   431→- src/views/audit-view.tsx (ONLY this file)
+   432→
+   433→Work Log:
+   434→- Read worklog and full audit-view.tsx (755 lines).
+   435→- Identified truncation/squishing points:
+   436→  • Desktop table header + rows used a fixed grid template `grid-cols-[150px_180px_120px_1fr_140px_110px_40px]` with NO minimum on the parent container — when viewport shrank near the lg breakpoint, columns squished and the `1fr` action column collapsed to ~48px.
+   437→  • Action text used `truncate` → "LOGIN_SUCCESS" cut to "LOGIN_S__".
+   438→  • Module badges and severity icons had no `whitespace-nowrap` — could wrap.
+   439→  • IP cell used `truncate` → could clip.
+   440→  • Pagination used `flex justify-between` only — on mobile the page text could misalign/wrap awkwardly when buttons stacked.
+   441→  • No horizontal scroll fallback — narrow viewports had no way to reveal clipped content.
+   442→
+   443→Changes made (ONLY src/views/audit-view.tsx):
+   444→
+   445→1. Wrapped the desktop table (header + list) in a single horizontally-scrollable container:
+   446→   `lg:overflow-x-auto lg:-mx-1 lg:px-1 lg:pb-1` with thin custom scrollbar styling
+   447→   (`[scrollbar-width:thin]` + WebKit `::-webkit-scrollbar` arbitrary variants).
+   448→   - Applied `lg:` prefix so the scroll behaviour only activates on lg+ where the desktop grid is visible; mobile cards render naturally without horizontal scroll.
+   449→
+   450→2. Set `lg:min-w-[860px]` on both the header row and the list container so the desktop table maintains its full 7-column layout and scrolls horizontally instead of squishing. (860px = sum of column minimums 770px + 6 gaps × 12px = 842px, with a small buffer.)
+   451→
+   452→3. Replaced fixed grid template with `minmax()` template on BOTH the header and AuditRow desktop grid:
+   453→   `grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px]`
+   454→   - WAKTU min 120px, PENGUNA min 150px, MODUL min 100px, TINDAKAN min 140px (was the squished 1fr — now guaranteed ≥140px so "LOGIN_SUCCESS" fits), ENTITI min 120px, IP min 100px, chevron 40px.
+   455→
+   456→4. Action text (desktop): removed `truncate`, added `whitespace-nowrap` so "LOGIN_SUCCESS", "BOOKING_CREATED", etc. render in full. Kept `font-mono` for readability.
+   457→
+   458→5. Module badge (desktop + mobile): added `whitespace-nowrap` so module tokens like "USER_MGMT", "APPROVAL" never wrap or clip.
+   459→
+   460→6. Severity icon badge (desktop + mobile): added `whitespace-nowrap` so the icon + label stays on one line.
+   461→
+   462→7. IP cell (desktop): removed `truncate`, added `whitespace-nowrap` (kept `font-mono`, `text-[11px]`). Masked IPs like "192.168.*.*" now render fully.
+   463→
+   464→8. Entity cell (desktop): added `whitespace-nowrap` to both the entity name and the `#entityId` mono span so they don't wrap mid-token.
+   465→
+   466→9. Header labels (desktop): added `whitespace-nowrap` to all 6 column headers (WAKTU, PENGUNA, MODUL, TINDAKAN, ENTITI, IP) so headers never break mid-word.
+   467→
+   468→10. Mobile IP span: added `whitespace-nowrap` so the masked IP stays intact.
+   469→
+   470→11. Pagination: changed from `flex items-center justify-between` to
+   471→    `flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-3` —
+   472→    stacks vertically & centres on mobile (Prev / page text / Next), returns to spread layout on sm+.
+   473→    Buttons now `w-full sm:w-auto justify-center` for proper full-width tappable targets on mobile.
+   474→    Page indicator span gained `text-center whitespace-nowrap` so "Halaman X daripada Y" stays on one line and centres cleanly.
+   475→
+   476→Verification:
+   477→- `cd /home/z/my-project && bun run lint` → exit 0, no errors.
+   478→- dev.log shows clean recompiles (`✓ Compiled in ...`) with no runtime/compile errors after edits.
+   479→- No other files modified.
+   480→- Existing functionality preserved: module/severity filters, client-side search, pagination state, row expansion with AnimatePresence, JSON details panel, user agent display, PDPA-friendly IP masking, glassmorphism style, teal/emerald/amber palette, BM/BI bilingual labels all intact.
+   481→- Mobile stacked card layout untouched (already used `break-all` for action text and `whitespace-nowrap` was added only to badges/IP).
+   482→
+   483→Stage Summary:
+   484→- All 3 identified bugs resolved:
+   485→  1. Column overflow — fixed via `minmax()` grid template + `lg:min-w-[860px]` + `lg:overflow-x-auto` scroll container with thin scrollbar.
+   486→  2. Action text cut-off ("LOGIN_S__") — fixed by replacing `truncate` with `whitespace-nowrap` and giving the TINDAKAN column a guaranteed 140px minimum.
+   487→  3. Pagination misalignment — fixed by stacking + centring on mobile, restoring spread on sm+, with `whitespace-nowrap` on the page indicator.
+   488→

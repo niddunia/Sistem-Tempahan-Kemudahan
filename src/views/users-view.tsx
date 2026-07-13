@@ -532,14 +532,14 @@ export function UsersView() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="pl-4 whitespace-nowrap min-w-[200px]">{t('name')}</TableHead>
+                  <TableHead className="pl-4 whitespace-nowrap min-w-[220px]">{t('name')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Peranan', 'Role')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[140px]">{t('department')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[110px]">{t('staffId')}</TableHead>
-                  <TableHead className="whitespace-nowrap min-w-[120px]">{tr('Telefon', 'Phone')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Telefon', 'Phone')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[130px]">{tr('Akhir Log Masuk', 'Last Login')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[100px]">{tr('Status', 'Status')}</TableHead>
-                  <TableHead className="text-right pr-4 whitespace-nowrap min-w-[150px]">{t('actions')}</TableHead>
+                  <TableHead className="text-right pr-4 whitespace-nowrap min-w-[180px]">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -559,17 +559,17 @@ export function UsersView() {
                             {initials(u.name || u.email)}
                           </div>
                           <div className="min-w-0">
-                            <p className="font-medium text-sm leading-tight flex items-center gap-1.5">
+                            <p className="font-medium text-sm leading-tight break-words">
                               {u.name}
                               {isSelf && (
-                                <span className="inline-flex items-center text-[9px] px-1 py-px rounded bg-teal-100 text-teal-700 border border-teal-200">
+                                <span className="inline-flex items-center text-[9px] px-1 py-px rounded bg-teal-100 text-teal-700 border border-teal-200 ml-1 align-middle">
                                   {tr('Anda', 'You')}
                                 </span>
                               )}
                             </p>
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
-                              <Mail className="w-3 h-3" />
-                              <span className="truncate max-w-[200px]">{u.email}</span>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5 min-w-0">
+                              <Mail className="w-3 h-3 shrink-0" />
+                              <span className="truncate min-w-0">{u.email}</span>
                             </p>
                           </div>
                         </div>
@@ -596,9 +596,9 @@ export function UsersView() {
                       </TableCell>
                       <TableCell>
                         {u.phone ? (
-                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                            <Phone className="w-3.5 h-3.5" />
-                            {u.phone}
+                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground whitespace-nowrap">
+                            <Phone className="w-3.5 h-3.5 shrink-0" />
+                            <span className="break-words">{u.phone}</span>
                           </span>
                         ) : (
                           <span className="text-xs text-muted-foreground/60">—</span>
@@ -626,7 +626,7 @@ export function UsersView() {
                             onClick={() => toggleSuspend(u)}
                             disabled={isSelf}
                             className={cn(
-                              'glass-input h-8 px-2 text-xs',
+                              'glass-input h-8 px-2 text-xs shrink-0 whitespace-nowrap',
                               u.status === 'SUSPENDED'
                                 ? 'text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 border-emerald-200/60'
                                 : 'text-amber-700 hover:bg-amber-50 hover:text-amber-800 border-amber-200/60',
@@ -971,8 +971,8 @@ function StatTile({
       <div className={cn('grid place-items-center w-10 h-10 rounded-xl shrink-0', toneClasses[tone])}>
         {icon}
       </div>
-      <div className="min-w-0">
-        <p className="text-[11px] text-muted-foreground truncate uppercase tracking-wide">{label}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] sm:text-[11px] text-muted-foreground uppercase tracking-wide break-words leading-tight">{label}</p>
         {loading ? (
           <Skeleton className="h-6 w-12 mt-1" />
         ) : (

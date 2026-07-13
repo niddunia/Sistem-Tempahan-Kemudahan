@@ -1,0 +1,1113 @@
+     1→     1→'use client';
+     2→     2→
+     3→     3→/**
+     4→     4→ * Integrated Calendar View — Sistem e-Tempahan PLTT-JTM (FR-05)
+     5→     5→ * Modes: Day / Week / Month with color-coded facilities (per facility.colorCode).
+     6→     6→ * - Public scope (default) → only APPROVED bookings, no applicant info
+     7→     7→ * - Admin scope (FACILITY_ADMIN+) → all statuses + applicant name/department
+     8→     8→ *
+     9→     9→ * Features:
+    10→    10→ *   • Mode switcher (Day/Week/Month) + Today + Prev/Next
+    11→    11→ *   • Search by program / facility / bookingRef (+ applicant name for admins)
+    12→    12→ *   • Facility filter dropdown
+    13→    13→ *   • Color-coded chips/blocks with click-to-open Popover (full details)
+    14→    14→ *   • Automatic visual highlight for time-overlapping bookings (amber ring + warning)
+    15→    15→ *   • Export PDF / Excel buttons → toast.info placeholder
+    16→    16→ *   • Empty-cell click → toast.info ("Klik 'Mohon Tempahan' …")
+    17→    17→ *   • Loading skeletons + per-day empty state
+    18→    18→ */
+    19→    19→
+    20→    20→import { useState, useMemo } from 'react';
+    21→    21→import { useT } from '@/hooks/use-t';
+    22→    22→import { useCurrentUser } from '@/hooks/use-current-user';
+    23→    23→import { GlassCard } from '@/components/glass-card';
+    24→    24→import { StatusBadge } from '@/components/status-badge';
+    25→    25→import { Button } from '@/components/ui/button';
+    26→    26→import { Input } from '@/components/ui/input';
+    27→    27→import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+    28→    28→import { Skeleton } from '@/components/ui/skeleton';
+    29→    29→import { Badge } from '@/components/ui/badge';
+    30→    30→import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+    31→    31→import {
+    32→    32→  Calendar,
+    33→    33→  ChevronLeft,
+    34→    34→  ChevronRight,
+    35→    35→  Clock,
+    36→    36→  MapPin,
+    37→    37→  Users,
+    38→    38→  Search,
+    39→    39→  LayoutGrid,
+    40→    40→  CalendarDays,
+    41→    41→  CalendarRange,
+    42→    42→  FileText,
+    43→    43→  FileSpreadsheet,
+    44→    44→  AlertTriangle,
+    45→    45→} from 'lucide-react';
+    46→    46→import { useQuery } from '@tanstack/react-query';
+    47→    47→import { motion } from 'framer-motion';
+    48→    48→import { toast } from 'sonner';
+    49→    49→import { cn } from '@/lib/utils';
+    50→    50→import {
+    51→    51→  startOfWeek,
+    52→    52→  endOfWeek,
+    53→    53→  startOfMonth,
+    54→    54→  endOfMonth,
+    55→    55→  eachDayOfInterval,
+    56→    56→  addDays,
+    57→    57→  addMonths,
+    58→    58→  isSameMonth,
+    59→    59→  isToday as isTodayFn,
+    60→    60→} from 'date-fns';
+    61→    61→
+    62→    62→/* ---------- constants ---------- */
+    63→    63→
+    64→    64→const DAY_START_HOUR = 8;
+    65→    65→const DAY_END_HOUR = 22;
+    66→    66→const CELL_HEIGHT_PER_MIN = 1.2; // 1 hour = 72px (per spec)
+    67→    67→const TIMELINE_HEIGHT = (DAY_END_HOUR - DAY_START_HOUR) * 60 * CELL_HEIGHT_PER_MIN; // 1008px
+    68→    68→const GUTTER_HOURS = [8, 10, 12, 14, 16, 18, 20, 22];
+    69→    69→
+    70→    70→type Mode = 'day' | 'week' | 'month';
+    71→    71→
+    72→    72→interface CalendarBooking {
+    73→    73→  id: string;
+    74→    74→  bookingRef: string;
+    75→    75→  facility: { id?: string; name: string; location: string; colorCode: string };
+    76→    76→  eventDate: string;
+    77→    77→  startTime: string;
+    78→    78→  endTime: string;
+    79→    79→  status: string;
+    80→    80→  programName: string | null;
+    81→    81→  user?: { id: string; name: string; email: string; department: string | null } | null;
+    82→    82→}
+    83→    83→
+    84→    84→/* ---------- helpers ---------- */
+    85→    85→
+    86→    86→function parseTimeToMin(t: string): number {
+    87→    87→  const [h, m] = t.split(':').map(Number);
+    88→    88→  return (h || 0) * 60 + (m || 0);
+    89→    89→}
+    90→    90→
+    91→    91→/** Convert any CSS color to an rgba string with given alpha. Falls back to the original color if parsing fails. */
+    92→    92→function toRgba(color: string, alpha: number): string {
+    93→    93→  if (!color) return `rgba(20, 184, 166, ${alpha})`;
+    94→    94→  const hex = color.trim().startsWith('#') ? color.trim().slice(1) : color.trim();
+    95→    95→  if (/^[0-9a-fA-F]{3}$/.test(hex)) {
+    96→    96→    const expanded = hex.split('').map((c) => c + c).join('');
+    97→    97→    const r = parseInt(expanded.slice(0, 2), 16);
+    98→    98→    const g = parseInt(expanded.slice(2, 4), 16);
+    99→    99→    const b = parseInt(expanded.slice(4, 6), 16);
+   100→   100→    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+   101→   101→  }
+   102→   102→  if (/^[0-9a-fA-F]{6}$/.test(hex)) {
+   103→   103→    const r = parseInt(hex.slice(0, 2), 16);
+   104→   104→    const g = parseInt(hex.slice(2, 4), 16);
+   105→   105→    const b = parseInt(hex.slice(4, 6), 16);
+   106→   106→    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+   107→   107→  }
+   108→   108→  return color;
+   109→   109→}
+   110→   110→
+   111→   111→/* ============================================================
+   112→   112→   CalendarView — main component
+   113→   113→   ============================================================ */
+   114→   114→
+   115→   115→export function CalendarView() {
+   116→   116→  const { t, lang } = useT();
+   117→   117→  const { isAuthenticated, isAdmin } = useCurrentUser();
+   118→   118→
+   119→   119→  const [mode, setMode] = useState<Mode>('week');
+   120→   120→  const [cursor, setCursor] = useState<Date>(() => {
+   121→   121→    const d = new Date();
+   122→   122→    d.setHours(0, 0, 0, 0);
+   123→   123→    return d;
+   124→   124→  });
+   125→   125→  const [facilityFilter, setFacilityFilter] = useState<string>('all');
+   126→   126→  const [search, setSearch] = useState('');
+   127→   127→
+   128→   128→  const locale = lang === 'bm' ? 'ms-MY' : 'en-GB';
+   129→   129→
+   130→   130→  /* ----- date range based on mode ----- */
+   131→   131→  const range = useMemo(() => {
+   132→   132→    if (mode === 'day') {
+   133→   133→      const start = new Date(cursor);
+   134→   134→      start.setHours(0, 0, 0, 0);
+   135→   135→      return { start, end: addDays(start, 1) };
+   136→   136→    }
+   137→   137→    if (mode === 'week') {
+   138→   138→      const start = startOfWeek(cursor, { weekStartsOn: 1 });
+   139→   139→      return { start, end: addDays(start, 7) };
+   140→   140→    }
+   141→   141→    // month — extend grid to full Monday-Sunday weeks
+   142→   142→    const start = startOfWeek(startOfMonth(cursor), { weekStartsOn: 1 });
+   143→   143→    const end = addDays(endOfWeek(endOfMonth(cursor), { weekStartsOn: 1 }), 1);
+   144→   144→    return { start, end };
+   145→   145→  }, [mode, cursor]);
+   146→   146→
+   147→   147→  const from = range.start.toISOString();
+   148→   148→  const to = range.end.toISOString();
+   149→   149→  const scope = isAuthenticated && isAdmin ? 'all' : 'public';
+   150→   150→
+   151→   151→  /* ----- queries ----- */
+   152→   152→  const { data: facilitiesData } = useQuery({
+   153→   153→    queryKey: ['facilities'],
+   154→   154→    queryFn: async () => {
+   155→   155→      const r = await fetch('/api/facilities');
+   156→   156→      const j = await r.json();
+   157→   157→      return (j.data ?? []) as Array<{
+   158→   158→        id: string;
+   159→   159→        name: string;
+   160→   160→        category: string;
+   161→   161→        colorCode: string;
+   162→   162→        location: string;
+   163→   163→        capacity: number;
+   164→   164→      }>;
+   165→   165→    },
+   166→   166→  });
+   167→   167→
+   168→   168→  const { data: bookings, isLoading } = useQuery({
+   169→   169→    queryKey: ['calendar-bookings', scope, from, to],
+   170→   170→    queryFn: async () => {
+   171→   171→      const url =
+   172→   172→        `/api/bookings?scope=${scope}` +
+   173→   173→        `&from=${encodeURIComponent(from)}` +
+   174→   174→        `&to=${encodeURIComponent(to)}` +
+   175→   175→        `&pageSize=300`;
+   176→   176→      const r = await fetch(url);
+   177→   177→      const j = await r.json();
+   178→   178→      return (j.data ?? []) as CalendarBooking[];
+   179→   179→    },
+   180→   180→  });
+   181→   181→
+   182→   182→  /* ----- group by day + detect overlap ----- */
+   183→   183→  const bookingsByDay = useMemo(() => {
+   184→   184→    const map = new Map<string, CalendarBooking[]>();
+   185→   185→    for (const b of bookings ?? []) {
+   186→   186→      const key = new Date(b.eventDate).toDateString();
+   187→   187→      if (!map.has(key)) map.set(key, []);
+   188→   188→      map.get(key)!.push(b);
+   189→   189→    }
+   190→   190→    for (const list of map.values()) {
+   191→   191→      list.sort((a, b) => a.startTime.localeCompare(b.startTime));
+   192→   192→    }
+   193→   193→    return map;
+   194→   194→  }, [bookings]);
+   195→   195→
+   196→   196→  // Visual-overlap detection: same facility, same day, time ranges intersect.
+   197→   197→  const overlapIds = useMemo(() => {
+   198→   198→    const ids = new Set<string>();
+   199→   199→    for (const list of bookingsByDay.values()) {
+   200→   200→      for (let i = 0; i < list.length; i++) {
+   201→   201→        for (let j = i + 1; j < list.length; j++) {
+   202→   202→          const a = list[i];
+   203→   203→          const b = list[j];
+   204→   204→          if (a.facility.name !== b.facility.name) continue;
+   205→   205→          if (a.startTime < b.endTime && b.startTime < a.endTime) {
+   206→   206→            ids.add(a.id);
+   207→   207→            ids.add(b.id);
+   208→   208→          }
+   209→   209→        }
+   210→   210→      }
+   211→   211→    }
+   212→   212→    return ids;
+   213→   213→  }, [bookingsByDay]);
+   214→   214→
+   215→   215→  /* ----- search + facility filter ----- */
+   216→   216→  const filteredByDay = useMemo(() => {
+   217→   217→    const map = new Map<string, CalendarBooking[]>();
+   218→   218→    const s = search.trim().toLowerCase();
+   219→   219→    for (const [k, list] of bookingsByDay.entries()) {
+   220→   220→      const filtered = list.filter((b) => {
+   221→   221→        if (facilityFilter !== 'all' && b.facility.name !== facilityFilter) return false;
+   222→   222→        if (!s) return true;
+   223→   223→        const applicant = b.user?.name?.toLowerCase() ?? '';
+   224→   224→        return (
+   225→   225→          (b.programName?.toLowerCase().includes(s) ?? false) ||
+   226→   226→          b.facility.name.toLowerCase().includes(s) ||
+   227→   227→          b.bookingRef.toLowerCase().includes(s) ||
+   228→   228→          applicant.includes(s)
+   229→   229→        );
+   230→   230→      });
+   231→   231→      map.set(k, filtered);
+   232→   232→    }
+   233→   233→    return map;
+   234→   234→  }, [bookingsByDay, facilityFilter, search]);
+   235→   235→
+   236→   236→  /* ----- navigation ----- */
+   237→   237→  const goPrev = () => {
+   238→   238→    if (mode === 'day') setCursor((c) => addDays(c, -1));
+   239→   239→    else if (mode === 'week') setCursor((c) => addDays(c, -7));
+   240→   240→    else setCursor((c) => addMonths(c, -1));
+   241→   241→  };
+   242→   242→  const goNext = () => {
+   243→   243→    if (mode === 'day') setCursor((c) => addDays(c, 1));
+   244→   244→    else if (mode === 'week') setCursor((c) => addDays(c, 7));
+   245→   245→    else setCursor((c) => addMonths(c, 1));
+   246→   246→  };
+   247→   247→  const goToday = () => {
+   248→   248→    const d = new Date();
+   249→   249→    d.setHours(0, 0, 0, 0);
+   250→   250→    setCursor(d);
+   251→   251→  };
+   252→   252→
+   253→   253→  const periodLabel = useMemo(() => {
+   254→   254→    if (mode === 'day') {
+   255→   255→      return cursor.toLocaleDateString(locale, {
+   256→   256→        weekday: 'long',
+   257→   257→        day: 'numeric',
+   258→   258→        month: 'long',
+   259→   259→        year: 'numeric',
+   260→   260→      });
+   261→   261→    }
+   262→   262→    if (mode === 'week') {
+   263→   263→      const s = startOfWeek(cursor, { weekStartsOn: 1 });
+   264→   264→      const e = endOfWeek(cursor, { weekStartsOn: 1 });
+   265→   265→      return `${s.toLocaleDateString(locale, { day: 'numeric', month: 'short' })} — ${e.toLocaleDateString(locale, {
+   266→   266→        day: 'numeric',
+   267→   267→        month: 'short',
+   268→   268→        year: 'numeric',
+   269→   269→      })}`;
+   270→   270→    }
+   271→   271→    return cursor.toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+   272→   272→  }, [mode, cursor, locale]);
+   273→   273→
+   274→   274→  // Weekday header labels (Mon-Sun, localized)
+   275→   275→  const weekdayLabels = useMemo(() => {
+   276→   276→    const monday = startOfWeek(new Date(), { weekStartsOn: 1 });
+   277→   277→    return Array.from({ length: 7 }, (_, i) => {
+   278→   278→      const d = addDays(monday, i);
+   279→   279→      return d.toLocaleDateString(locale, { weekday: 'short' });
+   280→   280→    });
+   281→   281→  }, [locale]);
+   282→   282→
+   283→   283→  /* ----- actions ----- */
+   284→   284→  const handleExport = (_kind: 'pdf' | 'excel') => {
+   285→   285→    toast.info(lang === 'bm' ? 'Eksport akan datang' : 'Export coming soon');
+   286→   286→  };
+   287→   287→  const handleEmptyClick = () => {
+   288→   288→    toast.info(
+   289→   289→      lang === 'bm'
+   290→   290→        ? "Klik 'Mohon Tempahan' untuk membuat tempahan baharu"
+   291→   291→        : "Click 'New Booking' to create a new booking",
+   292→   292→    );
+   293→   293→  };
+   294→   294→
+   295→   295→  /* ----- render ----- */
+   296→   296→  return (
+   297→   297→    <motion.div
+   298→   298→      initial={{ opacity: 0, y: 10 }}
+   299→   299→      animate={{ opacity: 1, y: 0 }}
+   300→   300→      transition={{ duration: 0.3 }}
+   301→   301→      className="space-y-4"
+   302→   302→    >
+   303→   303→      {/* Hero */}
+   304→   304→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   305→   305→        <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   306→   306→        <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+   307→   307→        <div className="relative z-10">
+   308→   308→          <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   309→   309→            <Calendar className="w-3 h-3" />
+   310→   310→            <span>{lang === 'bm' ? 'Paparan Bersepadu' : 'Integrated View'} · FR-05</span>
+   311→   311→          </div>
+   312→   312→          <h2 className="text-xl lg:text-2xl font-bold gradient-text mb-1">{t('nav_calendar')}</h2>
+   313→   313→          <p className="text-sm text-muted-foreground max-w-2xl">
+   314→   314→            {lang === 'bm'
+   315→   315→              ? 'Paparan kalendar bersepadu semua tempahan kemudahan PLTT — mod Hari / Minggu / Bulan dengan kod warna per kemudahan.'
+   316→   316→              : 'Integrated calendar of all PLTT facility bookings — Day / Week / Month modes with color-coded facilities.'}
+   317→   317→          </p>
+   318→   318→          {/* Facility color legend */}
+   319→   319→          <div className="flex flex-wrap gap-2 mt-4">
+   320→   320→            {(facilitiesData ?? []).slice(0, 6).map((f) => (
+   321→   321→              <span
+   322→   322→                key={f.id}
+   323→   323→                className="inline-flex items-center gap-1.5 text-[10px] px-2 py-1 rounded-full glass-input border border-border/40"
+   324→   324→              >
+   325→   325→                <span className="w-2 h-2 rounded-full" style={{ background: f.colorCode }} />
+   326→   326→                {f.name}
+   327→   327→              </span>
+   328→   328→            ))}
+   329→   329→            {scope === 'all' && (
+   330→   330→              <Badge variant="outline" className="text-[10px] glass-input border-amber-400/40 text-amber-700">
+   331→   331→                {lang === 'bm' ? 'Skop Pentadbir' : 'Admin Scope'}
+   332→   332→              </Badge>
+   333→   333→            )}
+   334→   334→          </div>
+   335→   335→        </div>
+   336→   336→      </GlassCard>
+   337→   337→
+   338→   338→      {/* Toolbar */}
+   339→   339→      <GlassCard className="p-3 lg:p-4">
+   340→   340→        <div className="flex flex-col gap-3">
+   341→   341→          <div className="flex flex-col lg:flex-row lg:items-center gap-3">
+   342→   342→            {/* Mode switcher */}
+   343→   343→            <div
+   344→   344→              role="tablist"
+   345→   345→              aria-label="Calendar mode"
+   346→   346→              className="inline-flex p-1 rounded-lg glass-input border border-border/40 self-start"
+   347→   347→            >
+   348→   348→              <ModeButton active={mode === 'day'} onClick={() => setMode('day')} icon={CalendarDays} label={t('calendar_day')} />
+   349→   349→              <ModeButton active={mode === 'week'} onClick={() => setMode('week')} icon={CalendarRange} label={t('calendar_week')} />
+   350→   350→              <ModeButton active={mode === 'month'} onClick={() => setMode('month')} icon={LayoutGrid} label={t('calendar_month')} />
+   351→   351→            </div>
+   352→   352→
+   353→   353→            {/* Navigation */}
+   354→   354→            <div className="flex items-center gap-2 flex-1 min-w-0">
+   355→   355→              <Button variant="outline" size="icon" onClick={goPrev} className="glass-input shrink-0" aria-label="Previous">
+   356→   356→                <ChevronLeft className="w-4 h-4" />
+   357→   357→              </Button>
+   358→   358→              <div className="text-sm font-semibold min-w-[160px] text-center truncate">{periodLabel}</div>
+   359→   359→              <Button variant="outline" size="icon" onClick={goNext} className="glass-input shrink-0" aria-label="Next">
+   360→   360→                <ChevronRight className="w-4 h-4" />
+   361→   361→              </Button>
+   362→   362→              <Button variant="outline" size="sm" onClick={goToday} className="ml-1 glass-input text-xs shrink-0">
+   363→   363→                {t('calendar_today')}
+   364→   364→              </Button>
+   365→   365→            </div>
+   366→   366→
+   367→   367→            {/* Export buttons */}
+   368→   368→            <div className="flex items-center gap-2 shrink-0">
+   369→   369→              <Button variant="outline" size="sm" onClick={() => handleExport('pdf')} className="glass-input text-xs">
+   370→   370→                <FileText className="w-3.5 h-3.5" />
+   371→   371→                PDF
+   372→   372→              </Button>
+   373→   373→              <Button variant="outline" size="sm" onClick={() => handleExport('excel')} className="glass-input text-xs">
+   374→   374→                <FileSpreadsheet className="w-3.5 h-3.5" />
+   375→   375→                Excel
+   376→   376→              </Button>
+   377→   377→            </div>
+   378→   378→          </div>
+   379→   379→
+   380→   380→          {/* Search + facility filter */}
+   381→   381→          <div className="flex flex-col md:flex-row gap-3">
+   382→   382→            <div className="relative flex-1">
+   383→   383→              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+   384→   384→              <Input
+   385→   385→                value={search}
+   386→   386→                onChange={(e) => setSearch(e.target.value)}
+   387→   387→                placeholder={
+   388→   388→                  lang === 'bm'
+   389→   389→                    ? 'Cari nama program, kemudahan, rujukan…'
+   390→   390→                    : 'Search program, facility, reference…'
+   391→   391→                }
+   392→   392→                className="pl-9 glass-input"
+   393→   393→                aria-label={t('search')}
+   394→   394→              />
+   395→   395→            </div>
+   396→   396→            <Select value={facilityFilter} onValueChange={setFacilityFilter}>
+   397→   397→              <SelectTrigger className="glass-input md:w-64" aria-label={t('filter')}>
+   398→   398→                <SelectValue placeholder={t('form_facility')} />
+   399→   399→              </SelectTrigger>
+   400→   400→              <SelectContent className="glass-strong">
+   401→   401→                <SelectItem value="all">{lang === 'bm' ? 'Semua Kemudahan' : 'All Facilities'}</SelectItem>
+   402→   402→                {(facilitiesData ?? []).map((f) => (
+   403→   403→                  <SelectItem key={f.id} value={f.name}>
+   404→   404→                    <span className="inline-flex items-center gap-2">
+   405→   405→                      <span className="w-2 h-2 rounded-full" style={{ background: f.colorCode }} />
+   406→   406→                      {f.name}
+   407→   407→                    </span>
+   408→   408→                  </SelectItem>
+   409→   409→                ))}
+   410→   410→              </SelectContent>
+   411→   411→            </Select>
+   412→   412→          </div>
+   413→   413→        </div>
+   414→   414→      </GlassCard>
+   415→   415→
+   416→   416→      {/* Calendar body */}
+   417→   417→      {isLoading ? (
+   418→   418→        <CalendarSkeleton mode={mode} />
+   419→   419→      ) : mode === 'month' ? (
+   420→   420→        <MonthGrid
+   421→   421→          cursor={cursor}
+   422→   422→          locale={locale}
+   423→   423→          weekdayLabels={weekdayLabels}
+   424→   424→          filteredByDay={filteredByDay}
+   425→   425→          overlapIds={overlapIds}
+   426→   426→          onEmptyClick={handleEmptyClick}
+   427→   427→          scope={scope}
+   428→   428→          lang={lang}
+   429→   429→        />
+   430→   430→      ) : mode === 'week' ? (
+   431→   431→        <WeekGrid
+   432→   432→          cursor={cursor}
+   433→   433→          locale={locale}
+   434→   434→          filteredByDay={filteredByDay}
+   435→   435→          overlapIds={overlapIds}
+   436→   436→          onEmptyClick={handleEmptyClick}
+   437→   437→          scope={scope}
+   438→   438→          lang={lang}
+   439→   439→        />
+   440→   440→      ) : (
+   441→   441→        <DayTimeline
+   442→   442→          cursor={cursor}
+   443→   443→          locale={locale}
+   444→   444→          filteredByDay={filteredByDay}
+   445→   445→          overlapIds={overlapIds}
+   446→   446→          onEmptyClick={handleEmptyClick}
+   447→   447→          scope={scope}
+   448→   448→          lang={lang}
+   449→   449→        />
+   450→   450→      )}
+   451→   451→    </motion.div>
+   452→   452→  );
+   453→   453→}
+   454→   454→
+   455→   455→/* ============================================================
+   456→   456→   Sub-components
+   457→   457→   ============================================================ */
+   458→   458→
+   459→   459→function ModeButton({
+   460→   460→  active,
+   461→   461→  onClick,
+   462→   462→  icon: Icon,
+   463→   463→  label,
+   464→   464→}: {
+   465→   465→  active: boolean;
+   466→   466→  onClick: () => void;
+   467→   467→  icon: typeof Calendar;
+   468→   468→  label: string;
+   469→   469→}) {
+   470→   470→  return (
+   471→   471→    <button
+   472→   472→      type="button"
+   473→   473→      role="tab"
+   474→   474→      aria-selected={active}
+   475→   475→      onClick={onClick}
+   476→   476→      className={cn(
+   477→   477→        'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500',
+   478→   478→        active
+   479→   479→          ? 'bg-primary text-primary-foreground shadow-sm'
+   480→   480→          : 'text-muted-foreground hover:text-foreground hover:bg-background/60',
+   481→   481→      )}
+   482→   482→    >
+   483→   483→      <Icon className="w-3.5 h-3.5" />
+   484→   484→      {label}
+   485→   485→    </button>
+   486→   486→  );
+   487→   487→}
+   488→   488→
+   489→   489→/* ---------- Month ---------- */
+   490→   490→
+   491→   491→function MonthGrid({
+   492→   492→  cursor,
+   493→   493→  locale,
+   494→   494→  weekdayLabels,
+   495→   495→  filteredByDay,
+   496→   496→  overlapIds,
+   497→   497→  onEmptyClick,
+   498→   498→  scope,
+   499→   499→  lang,
+   500→   500→}: {
+   501→   501→  cursor: Date;
+   502→   502→  locale: string;
+   503→   503→  weekdayLabels: string[];
+   504→   504→  filteredByDay: Map<string, CalendarBooking[]>;
+   505→   505→  overlapIds: Set<string>;
+   506→   506→  onEmptyClick: () => void;
+   507→   507→  scope: string;
+   508→   508→  lang: 'bm' | 'en';
+   509→   509→}) {
+   510→   510→  const monthStart = startOfMonth(cursor);
+   511→   511→  const monthEnd = endOfMonth(cursor);
+   512→   512→  const gridStart = startOfWeek(monthStart, { weekStartsOn: 1 });
+   513→   513→  const gridEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+   514→   514→  const days = eachDayOfInterval({ start: gridStart, end: gridEnd });
+   515→   515→
+   516→   516→  return (
+   517→   517→    <GlassCard className="p-3 lg:p-4">
+   518→   518→      {/* Weekday header */}
+   519→   519→      <div className="grid grid-cols-7 gap-1 mb-2">
+   520→   520→        {weekdayLabels.map((d) => (
+   521→   521→          <div
+   522→   522→            key={d}
+   523→   523→            className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground text-center py-1"
+   524→   524→          >
+   525→   525→            {d}
+   526→   526→          </div>
+   527→   527→        ))}
+   528→   528→      </div>
+   529→   529→      {/* Day cells */}
+   530→   530→      <div className="grid grid-cols-7 gap-1">
+   531→   531→        {days.map((day) => {
+   532→   532→          const inMonth = isSameMonth(day, cursor);
+   533→   533→          const today = isTodayFn(day);
+   534→   534→          const list = filteredByDay.get(day.toDateString()) ?? [];
+   535→   535→          const visible = list.slice(0, 3);
+   536→   536→          const overflow = list.length - visible.length;
+   537→   537→          const isEmpty = list.length === 0;
+   538→   538→          return (
+   539→   539→            <div
+   540→   540→              key={day.toISOString()}
+   541→   541→              role={isEmpty ? 'button' : undefined}
+   542→   542→              tabIndex={isEmpty ? 0 : undefined}
+   543→   543→              onClick={() => isEmpty && onEmptyClick()}
+   544→   544→              onKeyDown={(e) => {
+   545→   545→                if (isEmpty && (e.key === 'Enter' || e.key === ' ')) {
+   546→   546→                  e.preventDefault();
+   547→   547→                  onEmptyClick();
+   548→   548→                }
+   549→   549→              }}
+   550→   550→              className={cn(
+   551→   551→                'min-h-[110px] lg:min-h-[130px] p-1.5 rounded-lg border border-border/40 glass-input flex flex-col gap-1 transition-colors',
+   552→   552→                !inMonth && 'opacity-40',
+   553→   553→                today && 'ring-2 ring-teal-500/50',
+   554→   554→                isEmpty && 'cursor-pointer hover:bg-accent/40',
+   555→   555→              )}
+   556→   556→            >
+   557→   557→              <div className={cn('text-[11px] font-bold flex items-center justify-between', today && 'text-teal-600')}>
+   558→   558→                <span>{day.getDate()}</span>
+   559→   559→                {today && (
+   560→   560→                  <span className="text-[9px] uppercase font-semibold text-teal-500">
+   561→   561→                    {lang === 'bm' ? 'Hari ini' : 'Today'}
+   562→   562→                  </span>
+   563→   563→                )}
+   564→   564→              </div>
+   565→   565→              <div className="flex-1 space-y-1 overflow-hidden">
+   566→   566→                {visible.map((b) => (
+   567→   567→                  <BookingChip
+   568→   568→                    key={b.id}
+   569→   569→                    booking={b}
+   570→   570→                    overlap={overlapIds.has(b.id)}
+   571→   571→                    scope={scope}
+   572→   572→                    locale={locale}
+   573→   573→                  />
+   574→   574→                ))}
+   575→   575→                {overflow > 0 && (
+   576→   576→                  <Popover>
+   577→   577→                    <PopoverTrigger asChild>
+   578→   578→                      <button
+   579→   579→                        type="button"
+   580→   580→                        className="w-full text-left text-[10px] px-1.5 py-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+   581→   581→                      >
+   582→   582→                        +{overflow} {lang === 'bm' ? 'lagi' : 'more'}
+   583→   583→                      </button>
+   584→   584→                    </PopoverTrigger>
+   585→   585→                    <PopoverContent className="glass-strong w-72 p-3" align="start">
+   586→   586→                      <div className="text-xs font-semibold mb-2">
+   587→   587→                        {day.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' })}
+   588→   588→                      </div>
+   589→   589→                      <div className="space-y-2 max-h-72 overflow-y-auto scroll-area-thin">
+   590→   590→                        {list.map((b) => (
+   591→   591→                          <BookingDetailContent
+   592→   592→                            key={b.id}
+   593→   593→                            booking={b}
+   594→   594→                            overlap={overlapIds.has(b.id)}
+   595→   595→                            scope={scope}
+   596→   596→                            locale={locale}
+   597→   597→                          />
+   598→   598→                        ))}
+   599→   599→                      </div>
+   600→   600→                    </PopoverContent>
+   601→   601→                  </Popover>
+   602→   602→                )}
+   603→   603→                {isEmpty && (
+   604→   604→                  <div className="text-[10px] text-muted-foreground/60 italic text-center mt-1">
+   605→   605→                    {lang === 'bm' ? 'Tiada' : 'Empty'}
+   606→   606→                  </div>
+   607→   607→                )}
+   608→   608→              </div>
+   609→   609→            </div>
+   610→   610→          );
+   611→   611→        })}
+   612→   612→      </div>
+   613→   613→    </GlassCard>
+   614→   614→  );
+   615→   615→}
+   616→   616→
+   617→   617→/** Compact chip used inside Month cells. */
+   618→   618→function BookingChip({
+   619→   619→  booking,
+   620→   620→  overlap,
+   621→   621→  scope,
+   622→   622→  locale,
+   623→   623→}: {
+   624→   624→  booking: CalendarBooking;
+   625→   625→  overlap: boolean;
+   626→   626→  scope: string;
+   627→   627→  locale: string;
+   628→   628→}) {
+   629→   629→  return (
+   630→   630→    <Popover>
+   631→   631→      <PopoverTrigger asChild>
+   632→   632→        <button
+   633→   633→          type="button"
+   634→   634→          className="w-full text-left p-1.5 rounded-md text-[10px] transition-all hover:scale-[1.02] focus:outline-none focus:ring-1 focus:ring-teal-500"
+   635→   635→          style={{
+   636→   636→            background: toRgba(booking.facility.colorCode, 0.12),
+   637→   637→            borderLeft: `3px solid ${booking.facility.colorCode}`,
+   638→   638→          }}
+   639→   639→          aria-label={`Booking ${booking.bookingRef}`}
+   640→   640→        >
+   641→   641→          <div className="flex items-center gap-1 font-semibold text-foreground">
+   642→   642→            <Clock className="w-2.5 h-2.5 shrink-0" />
+   643→   643→            <span className="truncate">{booking.startTime}</span>
+   644→   644→            {overlap && <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0 ml-auto" />}
+   645→   645→          </div>
+   646→   646→          <div className="text-foreground/80 font-medium mt-0.5 line-clamp-1">
+   647→   647→            {booking.programName ?? booking.facility.name}
+   648→   648→          </div>
+   649→   649→        </button>
+   650→   650→      </PopoverTrigger>
+   651→   651→      <PopoverContent className="glass-strong w-72 p-3" sideOffset={4}>
+   652→   652→        <BookingDetailContent booking={booking} overlap={overlap} scope={scope} locale={locale} />
+   653→   653→      </PopoverContent>
+   654→   654→    </Popover>
+   655→   655→  );
+   656→   656→}
+   657→   657→
+   658→   658→/* ---------- Week ---------- */
+   659→   659→
+   660→   660→function WeekGrid({
+   661→   661→  cursor,
+   662→   662→  locale,
+   663→   663→  filteredByDay,
+   664→   664→  overlapIds,
+   665→   665→  onEmptyClick,
+   666→   666→  scope,
+   667→   667→  lang,
+   668→   668→}: {
+   669→   669→  cursor: Date;
+   670→   670→  locale: string;
+   671→   671→  filteredByDay: Map<string, CalendarBooking[]>;
+   672→   672→  overlapIds: Set<string>;
+   673→   673→  onEmptyClick: () => void;
+   674→   674→  scope: string;
+   675→   675→  lang: 'bm' | 'en';
+   676→   676→}) {
+   677→   677→  const weekStart = startOfWeek(cursor, { weekStartsOn: 1 });
+   678→   678→  const days = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+   679→   679→
+   680→   680→  return (
+   681→   681→    <GlassCard className="p-3 lg:p-4">
+   682→   682→      <div className="flex gap-2">
+   683→   683→        {/* Time gutter (decorative orientation, 08:00-22:00 in 2h steps) */}
+   684→   684→        <div
+   685→   685→          className="w-12 shrink-0 flex flex-col justify-between pt-9 pb-2 text-right pr-1"
+   686→   686→          aria-hidden="true"
+   687→   687→        >
+   688→   688→          {GUTTER_HOURS.map((h) => (
+   689→   689→            <div key={h} className="text-[10px] font-mono text-muted-foreground">
+   690→   690→              {h.toString().padStart(2, '0')}:00
+   691→   691→            </div>
+   692→   692→          ))}
+   693→   693→        </div>
+   694→   694→
+   695→   695→        {/* Day columns */}
+   696→   696→        <div className="flex-1 grid grid-cols-7 gap-1.5 min-w-0">
+   697→   697→          {days.map((d) => {
+   698→   698→            const today = isTodayFn(d);
+   699→   699→            const list = filteredByDay.get(d.toDateString()) ?? [];
+   700→   700→            return (
+   701→   701→              <div
+   702→   702→                key={d.toISOString()}
+   703→   703→                className={cn(
+   704→   704→                  'rounded-lg border border-border/40 glass-input flex flex-col min-h-[480px]',
+   705→   705→                  today && 'ring-2 ring-teal-500/40 bg-teal-500/5',
+   706→   706→                )}
+   707→   707→              >
+   708→   708→                <div className={cn('text-center py-2 border-b border-border/40', today && 'bg-teal-500/10 rounded-t-lg')}>
+   709→   709→                  <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   710→   710→                    {d.toLocaleDateString(locale, { weekday: 'short' })}
+   711→   711→                  </div>
+   712→   712→                  <div className={cn('text-sm font-bold mt-0.5', today ? 'text-teal-700' : 'text-foreground')}>
+   713→   713→                    {d.getDate()}
+   714→   714→                  </div>
+   715→   715→                </div>
+   716→   716→                <div className="flex-1 p-1.5 space-y-1.5 overflow-y-auto scroll-area-thin max-h-[640px]">
+   717→   717→                  {list.length === 0 ? (
+   718→   718→                    <button
+   719→   719→                      type="button"
+   720→   720→                      onClick={onEmptyClick}
+   721→   721→                      className="w-full text-[10px] text-muted-foreground/70 italic text-center py-6 hover:text-foreground transition-colors rounded-md hover:bg-accent/30"
+   722→   722→                    >
+   723→   723→                      {lang === 'bm' ? 'Tiada tempahan' : 'No bookings'}
+   724→   724→                    </button>
+   725→   725→                  ) : (
+   726→   726→                    list.map((b) => (
+   727→   727→                      <WeekBookingCard
+   728→   728→                        key={b.id}
+   729→   729→                        booking={b}
+   730→   730→                        overlap={overlapIds.has(b.id)}
+   731→   731→                        scope={scope}
+   732→   732→                        locale={locale}
+   733→   733→                      />
+   734→   734→                    ))
+   735→   735→                  )}
+   736→   736→                </div>
+   737→   737→              </div>
+   738→   738→            );
+   739→   739→          })}
+   740→   740→        </div>
+   741→   741→      </div>
+   742→   742→    </GlassCard>
+   743→   743→  );
+   744→   744→}
+   745→   745→
+   746→   746→/** Detailed chip used in Week columns. */
+   747→   747→function WeekBookingCard({
+   748→   748→  booking,
+   749→   749→  overlap,
+   750→   750→  scope,
+   751→   751→  locale,
+   752→   752→}: {
+   753→   753→  booking: CalendarBooking;
+   754→   754→  overlap: boolean;
+   755→   755→  scope: string;
+   756→   756→  locale: string;
+   757→   757→}) {
+   758→   758→  return (
+   759→   759→    <Popover>
+   760→   760→      <PopoverTrigger asChild>
+   761→   761→        <button
+   762→   762→          type="button"
+   763→   763→          className="w-full text-left p-2 rounded-md transition-all hover:scale-[1.02] focus:outline-none focus:ring-1 focus:ring-teal-500"
+   764→   764→          style={{
+   765→   765→            background: toRgba(booking.facility.colorCode, 0.1),
+   766→   766→            borderLeft: `3px solid ${booking.facility.colorCode}`,
+   767→   767→          }}
+   768→   768→          aria-label={`Booking ${booking.bookingRef}`}
+   769→   769→        >
+   770→   770→          <div className="flex items-center justify-between gap-1">
+   771→   771→            <span className="text-[10px] font-mono font-semibold text-foreground flex items-center gap-1">
+   772→   772→              <Clock className="w-2.5 h-2.5" />
+   773→   773→              {booking.startTime}–{booking.endTime}
+   774→   774→            </span>
+   775→   775→            {overlap && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
+   776→   776→          </div>
+   777→   777→          <div className="text-[11px] font-semibold text-foreground mt-0.5 line-clamp-2">
+   778→   778→            {booking.programName ?? booking.facility.name}
+   779→   779→          </div>
+   780→   780→          <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
+   781→   781→            <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: booking.facility.colorCode }} />
+   782→   782→            <span className="truncate">{booking.facility.name}</span>
+   783→   783→          </div>
+   784→   784→        </button>
+   785→   785→      </PopoverTrigger>
+   786→   786→      <PopoverContent className="glass-strong w-72 p-3" sideOffset={4}>
+   787→   787→        <BookingDetailContent booking={booking} overlap={overlap} scope={scope} locale={locale} />
+   788→   788→      </PopoverContent>
+   789→   789→    </Popover>
+   790→   790→  );
+   791→   791→}
+   792→   792→
+   793→   793→/* ---------- Day ---------- */
+   794→   794→
+   795→   795→function DayTimeline({
+   796→   796→  cursor,
+   797→   797→  locale,
+   798→   798→  filteredByDay,
+   799→   799→  overlapIds,
+   800→   800→  onEmptyClick,
+   801→   801→  scope,
+   802→   802→  lang,
+   803→   803→}: {
+   804→   804→  cursor: Date;
+   805→   805→  locale: string;
+   806→   806→  filteredByDay: Map<string, CalendarBooking[]>;
+   807→   807→  overlapIds: Set<string>;
+   808→   808→  onEmptyClick: () => void;
+   809→   809→  scope: string;
+   810→   810→  lang: 'bm' | 'en';
+   811→   811→}) {
+   812→   812→  const list = useMemo(
+   813→   813→    () =>
+   814→   814→      [...(filteredByDay.get(cursor.toDateString()) ?? [])].sort((a, b) =>
+   815→   815→        a.startTime.localeCompare(b.startTime),
+   816→   816→      ),
+   817→   817→    [filteredByDay, cursor],
+   818→   818→  );
+   819→   819→  const today = isTodayFn(cursor);
+   820→   820→
+   821→   821→  return (
+   822→   822→    <GlassCard className="p-3 lg:p-4">
+   823→   823→      {/* Header */}
+   824→   824→      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+   825→   825→        <div>
+   826→   826→          <div className={cn('text-base font-bold', today && 'text-teal-700')}>
+   827→   827→            {cursor.toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+   828→   828→          </div>
+   829→   829→          <div className="text-xs text-muted-foreground mt-0.5">
+   830→   830→            {list.length} {lang === 'bm' ? 'tempahan' : 'bookings'}
+   831→   831→            {today && ` · ${lang === 'bm' ? 'Hari ini' : 'Today'}`}
+   832→   832→          </div>
+   833→   833→        </div>
+   834→   834→        <Badge variant="outline" className="glass-input text-[10px] self-start">
+   835→   835→          <Clock className="w-3 h-3" />
+   836→   836→          {lang === 'bm' ? 'Garis masa' : 'Timeline'} 08:00–22:00
+   837→   837→        </Badge>
+   838→   838→      </div>
+   839→   839→
+   840→   840→      {/* Timeline */}
+   841→   841→      <div className="relative" style={{ height: TIMELINE_HEIGHT }}>
+   842→   842→        {/* Hour markers (gutter labels + horizontal lines) */}
+   843→   843→        {GUTTER_HOURS.slice(0, -1).map((h) => {
+   844→   844→          const top = (h - DAY_START_HOUR) * 60 * CELL_HEIGHT_PER_MIN;
+   845→   845→          return (
+   846→   846→            <div
+   847→   847→              key={h}
+   848→   848→              className="absolute left-0 right-0 flex items-center pointer-events-none"
+   849→   849→              style={{ top: `${top}px` }}
+   850→   850→            >
+   851→   851→              <div className="w-12 text-right pr-2 text-[10px] font-mono text-muted-foreground">
+   852→   852→                {h.toString().padStart(2, '0')}:00
+   853→   853→              </div>
+   854→   854→              <div className="flex-1 border-t border-border/40" />
+   855→   855→            </div>
+   856→   856→          );
+   857→   857→        })}
+   858→   858→        {/* Bottom edge line (22:00) */}
+   859→   859→        <div
+   860→   860→          className="absolute left-0 right-0 flex items-center pointer-events-none"
+   861→   861→          style={{ top: `${TIMELINE_HEIGHT}px` }}
+   862→   862→        >
+   863→   863→          <div className="w-12 text-right pr-2 text-[10px] font-mono text-muted-foreground">
+   864→   864→            {DAY_END_HOUR.toString().padStart(2, '0')}:00
+   865→   865→          </div>
+   866→   866→          <div className="flex-1 border-t border-border/40" />
+   867→   867→        </div>
+   868→   868→
+   869→   869→        {/* Booking blocks layer */}
+   870→   870→        <div className="absolute left-12 right-2 top-0 bottom-0">
+   871→   871→          {list.length === 0 ? (
+   872→   872→            <button
+   873→   873→              type="button"
+   874→   874→              onClick={onEmptyClick}
+   875→   875→              className="absolute inset-0 w-full h-full rounded-lg border border-dashed border-border/40 flex items-center justify-center text-xs text-muted-foreground hover:bg-accent/30 hover:text-foreground transition-colors"
+   876→   876→            >
+   877→   877→              {lang === 'bm' ? 'Tiada tempahan pada hari ini' : 'No bookings on this day'}
+   878→   878→            </button>
+   879→   879→          ) : (
+   880→   880→            list.map((b) => {
+   881→   881→              const startMin = parseTimeToMin(b.startTime);
+   882→   882→              const endMin = parseTimeToMin(b.endTime);
+   883→   883→              const top = Math.max(0, (startMin - DAY_START_HOUR * 60) * CELL_HEIGHT_PER_MIN);
+   884→   884→              const height = Math.max(36, (endMin - startMin) * CELL_HEIGHT_PER_MIN);
+   885→   885→              return (
+   886→   886→                <DayBookingBlock
+   887→   887→                  key={b.id}
+   888→   888→                  booking={b}
+   889→   889→                  top={top}
+   890→   890→                  height={height}
+   891→   891→                  overlap={overlapIds.has(b.id)}
+   892→   892→                  scope={scope}
+   893→   893→                  locale={locale}
+   894→   894→                />
+   895→   895→              );
+   896→   896→            })
+   897→   897→          )}
+   898→   898→        </div>
+   899→   899→      </div>
+   900→   900→    </GlassCard>
+   901→   901→  );
+   902→   902→}
+   903→   903→
+   904→   904→/** Absolutely-positioned booking block used in Day timeline. */
+   905→   905→function DayBookingBlock({
+   906→   906→  booking,
+   907→   907→  top,
+   908→   908→  height,
+   909→   909→  overlap,
+   910→   910→  scope,
+   911→   911→  locale,
+   912→   912→}: {
+   913→   913→  booking: CalendarBooking;
+   914→   914→  top: number;
+   915→   915→  height: number;
+   916→   916→  overlap: boolean;
+   917→   917→  scope: string;
+   918→   918→  locale: string;
+   919→   919→}) {
+   920→   920→  return (
+   921→   921→    <Popover>
+   922→   922→      <PopoverTrigger asChild>
+   923→   923→        <button
+   924→   924→          type="button"
+   925→   925→          className="absolute left-0 right-0 rounded-md p-2 text-left transition-all hover:scale-[1.01] focus:outline-none focus:ring-2 focus:ring-teal-500 shadow-sm overflow-hidden"
+   926→   926→          style={{
+   927→   927→            top: `${top}px`,
+   928→   928→            height: `${height}px`,
+   929→   929→            background: toRgba(booking.facility.colorCode, 0.18),
+   930→   930→            borderLeft: `4px solid ${booking.facility.colorCode}`,
+   931→   931→            ...(overlap ? { boxShadow: '0 0 0 1.5px rgba(245, 158, 11, 0.7) inset' } : {}),
+   932→   932→          }}
+   933→   933→          aria-label={`Booking ${booking.bookingRef}`}
+   934→   934→        >
+   935→   935→          <div className="flex items-start justify-between gap-1">
+   936→   936→            <span className="text-[11px] font-mono font-semibold text-foreground whitespace-nowrap">
+   937→   937→              {booking.startTime}–{booking.endTime}
+   938→   938→            </span>
+   939→   939→            {overlap && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
+   940→   940→          </div>
+   941→   941→          <div className="text-[12px] font-semibold text-foreground line-clamp-1 mt-0.5">
+   942→   942→            {booking.programName ?? booking.facility.name}
+   943→   943→          </div>
+   944→   944→          {height >= 56 && (
+   945→   945→            <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+   946→   946→              <MapPin className="w-2.5 h-2.5 shrink-0" />
+   947→   947→              <span className="truncate">{booking.facility.name}</span>
+   948→   948→            </div>
+   949→   949→          )}
+   950→   950→          {height >= 88 && (
+   951→   951→            <div className="mt-1">
+   952→   952→              <StatusBadge status={booking.status} className="!text-[9px] !py-0 !px-1.5" />
+   953→   953→            </div>
+   954→   954→          )}
+   955→   955→        </button>
+   956→   956→      </PopoverTrigger>
+   957→   957→      <PopoverContent className="glass-strong w-72 p-3" sideOffset={6} align="start">
+   958→   958→        <BookingDetailContent booking={booking} overlap={overlap} scope={scope} locale={locale} />
+   959→   959→      </PopoverContent>
+   960→   960→    </Popover>
+   961→   961→  );
+   962→   962→}
+   963→   963→
+   964→   964→/* ---------- Shared popover body ---------- */
+   965→   965→
+   966→   966→function BookingDetailContent({
+   967→   967→  booking,
+   968→   968→  overlap,
+   969→   969→  scope,
+   970→   970→  locale,
+   971→   971→}: {
+   972→   972→  booking: CalendarBooking;
+   973→   973→  overlap: boolean;
+   974→   974→  scope: string;
+   975→   975→  locale: string;
+   976→   976→}) {
+   977→   977→  const evDate = new Date(booking.eventDate);
+   978→   978→  return (
+   979→   979→    <div className="space-y-2">
+   980→   980→      <div className="flex items-start justify-between gap-2">
+   981→   981→        <div className="flex items-center gap-1.5 min-w-0">
+   982→   982→          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: booking.facility.colorCode }} />
+   983→   983→          <span className="text-xs font-bold text-foreground line-clamp-2">
+   984→   984→            {booking.programName ?? booking.facility.name}
+   985→   985→          </span>
+   986→   986→        </div>
+   987→   987→        <StatusBadge status={booking.status} className="!text-[9px] !py-0 !px-1.5 shrink-0" />
+   988→   988→      </div>
+   989→   989→
+   990→   990→      {overlap && (
+   991→   991→        <div className="text-[10px] text-amber-700 bg-amber-100/60 border border-amber-300/50 rounded px-1.5 py-0.5 flex items-center gap-1">
+   992→   992→          <AlertTriangle className="w-2.5 h-2.5 shrink-0" />
+   993→   993→          <span>Bertindih / Overlapping time slot</span>
+   994→   994→        </div>
+   995→   995→      )}
+   996→   996→
+   997→   997→      <div className="space-y-1 text-[11px] text-muted-foreground">
+   998→   998→        <div className="flex items-center gap-1.5">
+   999→   999→          <MapPin className="w-3 h-3 shrink-0" />
+  1000→  1000→          <span className="truncate">{booking.facility.name} · {booking.facility.location}</span>
+  1001→  1001→        </div>
+  1002→  1002→        <div className="flex items-center gap-1.5">
+  1003→  1003→          <Calendar className="w-3 h-3 shrink-0" />
+  1004→  1004→          <span>
+  1005→  1005→            {evDate.toLocaleDateString(locale, { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
+  1006→  1006→          </span>
+  1007→  1007→        </div>
+  1008→  1008→        <div className="flex items-center gap-1.5">
+  1009→  1009→          <Clock className="w-3 h-3 shrink-0" />
+  1010→  1010→          <span className="font-mono">{booking.startTime} – {booking.endTime}</span>
+  1011→  1011→        </div>
+  1012→  1012→        <div className="flex items-center gap-1.5">
+  1013→  1013→          <span className="w-3 h-3 shrink-0 text-center text-[9px] font-mono">#</span>
+  1014→  1014→          <span className="font-mono text-[10px]">{booking.bookingRef}</span>
+  1015→  1015→        </div>
+  1016→  1016→      </div>
+  1017→  1017→
+  1018→  1018→      {scope === 'all' && booking.user && (
+  1019→  1019→        <div className="pt-2 mt-1 border-t border-border/40 space-y-1 text-[11px]">
+  1020→  1020→          <div className="flex items-center gap-1.5">
+  1021→  1021→            <Users className="w-3 h-3 shrink-0 text-muted-foreground" />
+  1022→  1022→            <span className="font-medium text-foreground">{booking.user.name}</span>
+  1023→  1023→          </div>
+  1024→  1024→          {booking.user.department && (
+  1025→  1025→            <div className="text-[10px] text-muted-foreground pl-[18px]">{booking.user.department}</div>
+  1026→  1026→          )}
+  1027→  1027→        </div>
+  1028→  1028→      )}
+  1029→  1029→
+  1030→  1030→      {scope === 'public' && (
+  1031→  1031→        <div className="pt-2 mt-1 border-t border-border/40 text-[10px] text-muted-foreground italic">
+  1032→  1032→          Maklumat pemohon dirahsiakan · Applicant info hidden
+  1033→  1033→        </div>
+  1034→  1034→      )}
+  1035→  1035→    </div>
+  1036→  1036→  );
+  1037→  1037→}
+  1038→  1038→
+  1039→  1039→/* ---------- Skeleton ---------- */
+  1040→  1040→
+  1041→  1041→function CalendarSkeleton({ mode }: { mode: Mode }) {
+  1042→  1042→  if (mode === 'day') {
+  1043→  1043→    return (
+  1044→  1044→      <GlassCard className="p-4">
+  1045→  1045→        <Skeleton className="h-6 w-56 mb-4" />
+  1046→  1046→        <div className="relative" style={{ height: TIMELINE_HEIGHT }}>
+  1047→  1047→          {GUTTER_HOURS.slice(0, -1).map((h) => {
+  1048→  1048→            const top = (h - DAY_START_HOUR) * 60 * CELL_HEIGHT_PER_MIN;
+  1049→  1049→            return (
+  1050→  1050→              <div
+  1051→  1051→                key={h}
+  1052→  1052→                className="absolute left-0 right-0 flex items-center pointer-events-none"
+  1053→  1053→                style={{ top: `${top}px` }}
+  1054→  1054→              >
+  1055→  1055→                <div className="w-12 pr-2">
+  1056→  1056→                  <Skeleton className="h-3 w-10 ml-auto" />
+  1057→  1057→                </div>
+  1058→  1058→                <div className="flex-1 border-t border-border/40" />
+  1059→  1059→              </div>
+  1060→  1060→            );
+  1061→  1061→          })}
+  1062→  1062→          <div className="absolute left-12 right-2 top-4 w-2/3">
+  1063→  1063→            <Skeleton className="h-16 w-full rounded-md" />
+  1064→  1064→          </div>
+  1065→  1065→          <div className="absolute left-12 right-2 top-32 w-1/2">
+  1066→  1066→            <Skeleton className="h-24 w-full rounded-md" />
+  1067→  1067→          </div>
+  1068→  1068→          <div className="absolute left-12 right-2 top-72 w-3/4">
+  1069→  1069→            <Skeleton className="h-20 w-full rounded-md" />
+  1070→  1070→          </div>
+  1071→  1071→        </div>
+  1072→  1072→      </GlassCard>
+  1073→  1073→    );
+  1074→  1074→  }
+  1075→  1075→
+  1076→  1076→  if (mode === 'week') {
+  1077→  1077→    return (
+  1078→  1078→      <GlassCard className="p-4">
+  1079→  1079→        <div className="flex gap-2">
+  1080→  1080→          <Skeleton className="w-12 shrink-0 h-[480px]" />
+  1081→  1081→          <div className="flex-1 grid grid-cols-7 gap-1.5">
+  1082→  1082→            {Array.from({ length: 7 }, (_, i) => (
+  1083→  1083→              <div key={i} className="flex flex-col gap-1.5">
+  1084→  1084→                <Skeleton className="h-10 rounded-t-lg" />
+  1085→  1085→                <Skeleton className="h-16 rounded-md" />
+  1086→  1086→                <Skeleton className="h-12 rounded-md" />
+  1087→  1087→                <Skeleton className="h-20 rounded-md" />
+  1088→  1088→                <Skeleton className="h-14 rounded-md" />
+  1089→  1089→              </div>
+  1090→  1090→            ))}
+  1091→  1091→          </div>
+  1092→  1092→        </div>
+  1093→  1093→      </GlassCard>
+  1094→  1094→    );
+  1095→  1095→  }
+  1096→  1096→
+  1097→  1097→  // month
+  1098→  1098→  return (
+  1099→  1099→    <GlassCard className="p-4">
+  1100→  1100→      <div className="grid grid-cols-7 gap-1 mb-2">
+  1101→  1101→        {Array.from({ length: 7 }, (_, i) => (
+  1102→  1102→          <Skeleton key={i} className="h-5" />
+  1103→  1103→        ))}
+  1104→  1104→      </div>
+  1105→  1105→      <div className="grid grid-cols-7 gap-1">
+  1106→  1106→        {Array.from({ length: 35 }, (_, i) => (
+  1107→  1107→          <Skeleton key={i} className="min-h-[110px] lg:min-h-[130px] rounded-lg" />
+  1108→  1108→        ))}
+  1109→  1109→      </div>
+  1110→  1110→    </GlassCard>
+  1111→  1111→  );
+  1112→  1112→}
+  1113→  1113→

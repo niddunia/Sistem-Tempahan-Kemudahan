@@ -1,0 +1,687 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo, useRef, useCallback } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useCurrentUser } from '@/hooks/use-current-user';
+     6→import { GlassCard } from '@/components/glass-card';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Badge } from '@/components/ui/badge';
+     9→import { Skeleton } from '@/components/ui/skeleton';
+    10→import { Alert, AlertDescription } from '@/components/ui/alert';
+    11→import {
+    12→  BarChart3,
+    13→  TrendingUp,
+    14→  Clock,
+    15→  Building2,
+    16→  CheckCircle2,
+    17→  XCircle,
+    18→  Clock3,
+    19→  Sparkles,
+    20→  FileText,
+    21→  Download,
+    22→  Loader2,
+    23→  Activity,
+    24→  Gauge,
+    25→  Ban,
+    26→  AlertTriangle,
+    27→} from 'lucide-react';
+    28→import { motion } from 'framer-motion';
+    29→import { toast } from 'sonner';
+    30→import { useQuery } from '@tanstack/react-query';
+    31→import {
+    32→  AreaChart,
+    33→  Area,
+    34→  BarChart,
+    35→  Bar,
+    36→  PieChart,
+    37→  Pie,
+    38→  Cell,
+    39→  XAxis,
+    40→  YAxis,
+    41→  CartesianGrid,
+    42→  Tooltip,
+    43→  Legend,
+    44→  ResponsiveContainer,
+    45→} from 'recharts';
+    46→import type { TranslationKey } from '@/lib/i18n';
+    47→import { cn } from '@/lib/utils';
+    48→
+    49→// ===================== Types =====================
+    50→interface AnalyticsData {
+    51→  total: number;
+    52→  byStatus: Record<string, number>;
+    53→  byFacility: { name: string; category: string; count: number }[];
+    54→  byDay: Record<string, number>;
+    55→  byHour: Record<string, number>;
+    56→  utilizationRate: number;
+    57→  facilitiesCount: number;
+    58→  activeFacilitiesCount: number;
+    59→}
+    60→
+    61→// ===================== Constants =====================
+    62→// 5 status colors matching the status badges (teal/emerald/amber/rose/zinc)
+    63→const STATUS_COLORS: Record<string, string> = {
+    64→  PENDING: '#f59e0b', // amber
+    65→  APPROVED: '#10b981', // emerald
+    66→  REJECTED: '#f43f5e', // rose
+    67→  CANCELLED: '#71717a', // zinc
+    68→  COMPLETED: '#14b8a6', // teal
+    69→  NEEDS_INFO: '#fb923c', // orange
+    70→};
+    71→
+    72→const FACILITY_PALETTE = ['#14b8a6', '#10b981', '#f59e0b', '#f43f5e', '#8b5cf6'];
+    73→
+    74→const TOOLTIP_STYLE = {
+    75→  background: 'rgba(255,255,255,0.9)',
+    76→  backdropFilter: 'blur(8px)',
+    77→  border: '1px solid rgba(255,255,255,0.5)',
+    78→  borderRadius: '8px',
+    79→  fontSize: '12px',
+    80→} as const;
+    81→
+    82→// ===================== Helpers =====================
+    83→const shortDate = (iso: string, lang: 'bm' | 'en') => {
+    84→  const d = new Date(iso);
+    85→  return d.toLocaleDateString(lang === 'bm' ? 'ms-MY' : 'en-GB', {
+    86→    day: '2-digit',
+    87→    month: 'short',
+    88→  });
+    89→};
+    90→
+    91→// ===================== Main View =====================
+    92→export function AnalyticsView() {
+    93→  const { t, lang } = useT();
+    94→  const { user } = useCurrentUser();
+    95→  const tr = (bm: string, en: string) => (lang === 'bm' ? bm : en);
+    96→
+    97→  const [days, setDays] = useState(30);
+    98→
+    99→  // ---- AI summary local state ----
+   100→  const [aiSummary, setAiSummary] = useState<string | null>(null);
+   101→  const [aiLoading, setAiLoading] = useState(false);
+   102→  const [aiError, setAiError] = useState(false);
+   103→  const abortRef = useRef<AbortController | null>(null);
+   104→
+   105→  // ---- Fetch analytics ----
+   106→  const { data, isLoading, isError } = useQuery<AnalyticsData>({
+   107→    queryKey: ['analytics', days],
+   108→    queryFn: async () => {
+   109→      const r = await fetch(`/api/analytics?days=${days}`, { credentials: 'include' });
+   110→      if (!r.ok) throw new Error('failed');
+   111→      const j = await r.json();
+   112→      return j.data as AnalyticsData;
+   113→    },
+   114→    enabled: !!user,
+   115→  });
+   116→
+   117→  // ---- Chart data transforms ----
+   118→  const trendData = useMemo(() => {
+   119→    if (!data?.byDay) return [];
+   120→    return Object.entries(data.byDay)
+   121→      .map(([date, count]) => ({ date, count }))
+   122→      .sort((a, b) => a.date.localeCompare(b.date));
+   123→  }, [data]);
+   124→
+   125→  const statusData = useMemo(() => {
+   126→    if (!data?.byStatus) return [];
+   127→    return Object.entries(data.byStatus).map(([name, value]) => ({ name, value }));
+   128→  }, [data]);
+   129→
+   130→  const facilityData = useMemo(() => {
+   131→    if (!data?.byFacility) return [];
+   132→    return data.byFacility.slice(0, 5);
+   133→  }, [data]);
+   134→
+   135→  const hourData = useMemo(() => {
+   136→    if (!data?.byHour) return [];
+   137→    const result: { hour: string; count: number }[] = [];
+   138→    for (let h = 8; h <= 22; h++) {
+   139→      const key = String(h).padStart(2, '0');
+   140→      result.push({ hour: key, count: data.byHour[key] ?? 0 });
+   141→    }
+   142→    return result;
+   143→  }, [data]);
+   144→
+   145→  // ---- AI summary fetch (manual, with 30s timeout fallback) ----
+   146→  const generateAI = useCallback(async () => {
+   147→    setAiLoading(true);
+   148→    setAiError(false);
+   149→    setAiSummary(null);
+   150→    const ctrl = new AbortController();
+   151→    abortRef.current = ctrl;
+   152→    const timeout = setTimeout(() => ctrl.abort(), 30_000);
+   153→    try {
+   154→      const r = await fetch('/api/ai/report-summary', {
+   155→        method: 'POST',
+   156→        headers: { 'Content-Type': 'application/json' },
+   157→        credentials: 'include',
+   158→        body: JSON.stringify({}),
+   159→        signal: ctrl.signal,
+   160→      });
+   161→      if (!r.ok) throw new Error('ai_unavailable');
+   162→      const j = await r.json();
+   163→      const summary: string = j?.data?.summary ?? '';
+   164→      if (!summary.trim()) throw new Error('empty');
+   165→      setAiSummary(summary);
+   166→    } catch {
+   167→      setAiError(true);
+   168→    } finally {
+   169→      clearTimeout(timeout);
+   170→      setAiLoading(false);
+   171→      abortRef.current = null;
+   172→    }
+   173→  }, []);
+   174→
+   175→  // ---- Stat tile defs ----
+   176→  const statTiles = useMemo(() => {
+   177→    if (!data) return [];
+   178→    return [
+   179→      {
+   180→        key: 'total',
+   181→        label: t('stats_total_bookings'),
+   182→        value: data.total,
+   183→        icon: BarChart3,
+   184→        gradient: 'from-teal-400 to-teal-600',
+   185→        glow: 'bg-teal-500/15',
+   186→      },
+   187→      {
+   188→        key: 'pending',
+   189→        label: t('stats_pending'),
+   190→        value: data.byStatus.PENDING ?? 0,
+   191→        icon: Clock3,
+   192→        gradient: 'from-amber-400 to-orange-500',
+   193→        glow: 'bg-amber-500/15',
+   194→      },
+   195→      {
+   196→        key: 'approved',
+   197→        label: t('stats_approved'),
+   198→        value: (data.byStatus.APPROVED ?? 0) + (data.byStatus.COMPLETED ?? 0),
+   199→        icon: CheckCircle2,
+   200→        gradient: 'from-emerald-400 to-teal-500',
+   201→        glow: 'bg-emerald-500/15',
+   202→      },
+   203→      {
+   204→        key: 'rejected',
+   205→        label: t('stats_rejected'),
+   206→        value: (data.byStatus.REJECTED ?? 0) + (data.byStatus.CANCELLED ?? 0),
+   207→        icon: XCircle,
+   208→        gradient: 'from-rose-400 to-rose-600',
+   209→        glow: 'bg-rose-500/15',
+   210→      },
+   211→      {
+   212→        key: 'utilization',
+   213→        label: t('stats_utilization'),
+   214→        value: `${data.utilizationRate}%`,
+   215→        icon: Gauge,
+   216→        gradient: 'from-teal-500 to-emerald-500',
+   217→        glow: 'bg-teal-500/15',
+   218→      },
+   219→    ];
+   220→  }, [data, t]);
+   221→
+   222→  // ===================== Render =====================
+   223→  return (
+   224→    <motion.div
+   225→      initial={{ opacity: 0, y: 10 }}
+   226→      animate={{ opacity: 1, y: 0 }}
+   227→      transition={{ duration: 0.3 }}
+   228→      className="space-y-4 lg:space-y-6"
+   229→    >
+   230→      {/* ===== Header ===== */}
+   231→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   232→        <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   233→        <div className="absolute -bottom-16 -left-12 w-56 h-56 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+   234→        <div className="relative z-10 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+   235→          <div>
+   236→            <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   237→              <Activity className="w-3 h-3" />
+   238→              <span>{t('nav_analytics')}</span>
+   239→            </div>
+   240→            <h2 className="text-xl lg:text-2xl font-bold gradient-text">
+   241→              {tr('Dashboard Analitik & Laporan', 'Analytics Dashboard & Reports')}
+   242→            </h2>
+   243→            <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+   244→              {tr(
+   245→                'Pantau prestasi penggunaan kemudahan & jana laporan naratif AI automatik.',
+   246→                'Monitor facility usage performance & generate automatic AI narrative reports.',
+   247→              )}
+   248→            </p>
+   249→          </div>
+   250→
+   251→          <div className="flex flex-wrap items-center gap-2">
+   252→            {/* Time range selector */}
+   253→            <div className="inline-flex rounded-lg glass p-1 gap-1">
+   254→              {[7, 30, 90].map((d) => (
+   255→                <Button
+   256→                  key={d}
+   257→                  size="sm"
+   258→                  variant="ghost"
+   259→                  onClick={() => setDays(d)}
+   260→                  className={cn(
+   261→                    'h-8 px-3 text-xs font-semibold rounded-md',
+   262→                    days === d &&
+   263→                      'bg-gradient-to-r from-teal-500 to-emerald-500 text-white shadow-sm hover:opacity-90',
+   264→                  )}
+   265→                >
+   266→                  {d} {tr('hari', 'days')}
+   267→                </Button>
+   268→              ))}
+   269→            </div>
+   270→
+   271→            {/* Export buttons (visual only) */}
+   272→            <Button
+   273→              size="sm"
+   274→              variant="outline"
+   275→              onClick={() => toast.info(tr('Eksport akan datang', 'Export coming soon'))}
+   276→              className="h-8"
+   277→            >
+   278→              <FileText className="w-3.5 h-3.5" />
+   279→              PDF
+   280→            </Button>
+   281→            <Button
+   282→              size="sm"
+   283→              variant="outline"
+   284→              onClick={() => toast.info(tr('Eksport akan datang', 'Export coming soon'))}
+   285→              className="h-8"
+   286→            >
+   287→              <Download className="w-3.5 h-3.5" />
+   288→              Excel
+   289→            </Button>
+   290→          </div>
+   291→        </div>
+   292→      </GlassCard>
+   293→
+   294→      {/* ===== Stats Row ===== */}
+   295→      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3 lg:gap-4">
+   296→        {isLoading || !data
+   297→          ? Array.from({ length: 5 }).map((_, i) => (
+   298→              <GlassCard key={i} className="p-5">
+   299→                <Skeleton className="h-11 w-11 rounded-xl mb-3" />
+   300→                <Skeleton className="h-7 w-20 mb-2" />
+   301→                <Skeleton className="h-3 w-24" />
+   302→              </GlassCard>
+   303→            ))
+   304→          : statTiles.map((tile) => {
+   305→              const Icon = tile.icon;
+   306→              return (
+   307→                <GlassCard key={tile.key} className="p-5 relative overflow-hidden hover:shadow-lg transition-shadow">
+   308→                  <div className={cn('absolute -right-4 -top-4 w-20 h-20 rounded-full blur-2xl', tile.glow)} />
+   309→                  <div className="relative z-10">
+   310→                    <div
+   311→                      className={cn(
+   312→                        'w-11 h-11 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-lg mb-3',
+   313→                        tile.gradient,
+   314→                      )}
+   315→                    >
+   316→                      <Icon className="w-5 h-5 text-white" />
+   317→                    </div>
+   318→                    <div className="text-2xl lg:text-3xl font-bold tracking-tight">{tile.value}</div>
+   319→                    <div className="text-xs text-muted-foreground mt-1">{tile.label}</div>
+   320→                  </div>
+   321→                </GlassCard>
+   322→              );
+   323→            })}
+   324→      </div>
+   325→
+   326→      {/* ===== Error state ===== */}
+   327→      {isError && (
+   328→        <Alert className="border-rose-300/60 bg-rose-50/70 text-rose-800">
+   329→          <XCircle className="w-4 h-4" />
+   330→          <AlertDescription>
+   331→            {tr('Gagal memuatkan data analitik. Sila muat semula halaman.', 'Failed to load analytics data. Please refresh the page.')}
+   332→          </AlertDescription>
+   333→        </Alert>
+   334→      )}
+   335→
+   336→      {/* ===== Charts Grid ===== */}
+   337→      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 lg:gap-4">
+   338→        {/* 1. Bookings Trend — AreaChart */}
+   339→        <GlassCard className="p-5 lg:p-6">
+   340→          <div className="flex items-center justify-between mb-4">
+   341→            <div className="flex items-center gap-2">
+   342→              <div className="w-8 h-8 rounded-lg bg-teal-100/70 flex items-center justify-center">
+   343→                <TrendingUp className="w-4 h-4 text-teal-700" />
+   344→              </div>
+   345→              <div>
+   346→                <h3 className="text-sm font-semibold">
+   347→                  {tr('Trend Tempahan', 'Bookings Trend')}
+   348→                </h3>
+   349→                <p className="text-[11px] text-muted-foreground">
+   350→                  {tr(`${days} hari lepas`, `Last ${days} days`)}
+   351→                </p>
+   352→              </div>
+   353→            </div>
+   354→          </div>
+   355→          {isLoading ? (
+   356→            <Skeleton className="h-64 w-full" />
+   357→          ) : trendData.length === 0 ? (
+   358→            <ChartEmpty tr={tr} />
+   359→          ) : (
+   360→            <ResponsiveContainer width="100%" height={260}>
+   361→              <AreaChart data={trendData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+   362→                <defs>
+   363→                  <linearGradient id="colorBookings" x1="0" y1="0" x2="0" y2="1">
+   364→                    <stop offset="5%" stopColor="#14b8a6" stopOpacity={0.4} />
+   365→                    <stop offset="95%" stopColor="#14b8a6" stopOpacity={0.05} />
+   366→                  </linearGradient>
+   367→                </defs>
+   368→                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" />
+   369→                <XAxis
+   370→                  dataKey="date"
+   371→                  tickFormatter={(v) => shortDate(v, lang)}
+   372→                  tick={{ fontSize: 11, fill: 'currentColor' }}
+   373→                  stroke="rgba(0,0,0,0.15)"
+   374→                  minTickGap={20}
+   375→                />
+   376→                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
+   377→                <Tooltip
+   378→                  contentStyle={TOOLTIP_STYLE}
+   379→                  labelFormatter={(v) => new Date(v).toLocaleDateString(lang === 'bm' ? 'ms-MY' : 'en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+   380→                />
+   381→                <Area type="monotone" dataKey="count" name={tr('Tempahan', 'Bookings')} stroke="#14b8a6" strokeWidth={2.5} fill="url(#colorBookings)" />
+   382→              </AreaChart>
+   383→            </ResponsiveContainer>
+   384→          )}
+   385→        </GlassCard>
+   386→
+   387→        {/* 2. Status Distribution — PieChart */}
+   388→        <GlassCard className="p-5 lg:p-6">
+   389→          <div className="flex items-center justify-between mb-4">
+   390→            <div className="flex items-center gap-2">
+   391→              <div className="w-8 h-8 rounded-lg bg-emerald-100/70 flex items-center justify-center">
+   392→                <Activity className="w-4 h-4 text-emerald-700" />
+   393→              </div>
+   394→              <div>
+   395→                <h3 className="text-sm font-semibold">
+   396→                  {tr('Agihan Status', 'Status Distribution')}
+   397→                </h3>
+   398→                <p className="text-[11px] text-muted-foreground">
+   399→                  {tr('Mengikut status semasa', 'By current status')}
+   400→                </p>
+   401→              </div>
+   402→            </div>
+   403→          </div>
+   404→          {isLoading ? (
+   405→            <Skeleton className="h-64 w-full" />
+   406→          ) : statusData.length === 0 ? (
+   407→            <ChartEmpty tr={tr} />
+   408→          ) : (
+   409→            <ResponsiveContainer width="100%" height={260}>
+   410→              <PieChart>
+   411→                <Pie
+   412→                  data={statusData}
+   413→                  dataKey="value"
+   414→                  nameKey="name"
+   415→                  cx="50%"
+   416→                  cy="50%"
+   417→                  innerRadius={55}
+   418→                  outerRadius={85}
+   419→                  paddingAngle={2}
+   420→                  stroke="rgba(255,255,255,0.7)"
+   421→                  strokeWidth={2}
+   422→                >
+   423→                  {statusData.map((entry, idx) => (
+   424→                    <Cell key={idx} fill={STATUS_COLORS[entry.name] ?? '#71717a'} />
+   425→                  ))}
+   426→                </Pie>
+   427→                <Tooltip contentStyle={TOOLTIP_STYLE} />
+   428→                <Legend
+   429→                  verticalAlign="bottom"
+   430→                  height={36}
+   431→                  iconType="circle"
+   432→                  formatter={(value: string) => t(`status_${value}` as TranslationKey)}
+   433→                  wrapperStyle={{ fontSize: '11px' }}
+   434→                />
+   435→              </PieChart>
+   436→            </ResponsiveContainer>
+   437→          )}
+   438→        </GlassCard>
+   439→
+   440→        {/* 3. Top Facilities — horizontal BarChart */}
+   441→        <GlassCard className="p-5 lg:p-6">
+   442→          <div className="flex items-center justify-between mb-4">
+   443→            <div className="flex items-center gap-2">
+   444→              <div className="w-8 h-8 rounded-lg bg-amber-100/70 flex items-center justify-center">
+   445→                <Building2 className="w-4 h-4 text-amber-700" />
+   446→              </div>
+   447→              <div>
+   448→                <h3 className="text-sm font-semibold">
+   449→                  {tr('Kemudahan Teratas', 'Top Facilities')}
+   450→                </h3>
+   451→                <p className="text-[11px] text-muted-foreground">
+   452→                  {tr('5 kemudahan paling tinggi', 'Top 5 most booked')}
+   453→                </p>
+   454→              </div>
+   455→            </div>
+   456→          </div>
+   457→          {isLoading ? (
+   458→            <Skeleton className="h-64 w-full" />
+   459→          ) : facilityData.length === 0 ? (
+   460→            <ChartEmpty tr={tr} />
+   461→          ) : (
+   462→            <ResponsiveContainer width="100%" height={260}>
+   463→              <BarChart
+   464→                data={facilityData}
+   465→                layout="vertical"
+   466→                margin={{ top: 4, right: 16, left: 8, bottom: 4 }}
+   467→              >
+   468→                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />
+   469→                <XAxis type="number" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
+   470→                <YAxis
+   471→                  type="category"
+   472→                  dataKey="name"
+   473→                  tick={{ fontSize: 11, fill: 'currentColor' }}
+   474→                  stroke="rgba(0,0,0,0.15)"
+   475→                  width={120}
+   476→                  tickFormatter={(v: string) => (v.length > 18 ? v.slice(0, 17) + '…' : v)}
+   477→                />
+   478→                <Tooltip
+   479→                  contentStyle={TOOLTIP_STYLE}
+   480→                  cursor={{ fill: 'rgba(20,184,166,0.08)' }}
+   481→                  formatter={(v: number, _name, props) => [
+   482→                    v,
+   483→                    props?.payload?.category ?? tr('Bilangan', 'Count'),
+   484→                  ]}
+   485→                />
+   486→                <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={22}>
+   487→                  {facilityData.map((_, idx) => (
+   488→                    <Cell key={idx} fill={FACILITY_PALETTE[idx % FACILITY_PALETTE.length]} />
+   489→                  ))}
+   490→                </Bar>
+   491→              </BarChart>
+   492→            </ResponsiveContainer>
+   493→          )}
+   494→        </GlassCard>
+   495→
+   496→        {/* 4. Peak Hours — BarChart */}
+   497→        <GlassCard className="p-5 lg:p-6">
+   498→          <div className="flex items-center justify-between mb-4">
+   499→            <div className="flex items-center gap-2">
+   500→              <div className="w-8 h-8 rounded-lg bg-teal-100/70 flex items-center justify-center">
+   501→                <Clock className="w-4 h-4 text-teal-700" />
+   502→              </div>
+   503→              <div>
+   504→                <h3 className="text-sm font-semibold">
+   505→                  {t('stats_peak_hours')}
+   506→                </h3>
+   507→                <p className="text-[11px] text-muted-foreground">
+   508→                  {tr('Mengikut jam mula (08–22)', 'By start hour (08–22)')}
+   509→                </p>
+   510→              </div>
+   511→            </div>
+   512→          </div>
+   513→          {isLoading ? (
+   514→            <Skeleton className="h-64 w-full" />
+   515→          ) : hourData.length === 0 || hourData.every((h) => h.count === 0) ? (
+   516→            <ChartEmpty tr={tr} />
+   517→          ) : (
+   518→            <ResponsiveContainer width="100%" height={260}>
+   519→              <BarChart data={hourData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+   520→                <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
+   521→                <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" />
+   522→                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
+   523→                <Tooltip
+   524→                  contentStyle={TOOLTIP_STYLE}
+   525→                  cursor={{ fill: 'rgba(20,184,166,0.08)' }}
+   526→                  labelFormatter={(v) => `${v}:00`}
+   527→                />
+   528→                <Bar dataKey="count" name={tr('Tempahan', 'Bookings')} fill="#14b8a6" radius={[4, 4, 0, 0]} barSize={20} />
+   529→              </BarChart>
+   530→            </ResponsiveContainer>
+   531→          )}
+   532→        </GlassCard>
+   533→      </div>
+   534→
+   535→      {/* ===== AI Narrative Report ===== */}
+   536→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   537→        <div className="absolute top-0 right-0 w-80 h-80 rounded-full bg-gradient-to-br from-teal-500/15 to-amber-500/10 blur-3xl pointer-events-none" />
+   538→
+   539→        <div className="relative z-10">
+   540→          {/* Header */}
+   541→          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+   542→            <div className="flex items-center gap-3">
+   543→              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-teal-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-teal-500/30">
+   544→                <Sparkles className="w-5 h-5 text-white" />
+   545→              </div>
+   546→              <div>
+   547→                <div className="flex items-center gap-2 flex-wrap">
+   548→                  <h3 className="text-base font-bold gradient-text">
+   549→                    {tr('Ringkasan Laporan AI', 'AI Report Summary')}
+   550→                  </h3>
+   551→                  <Badge className="bg-gradient-to-r from-teal-500 to-emerald-500 text-white border-transparent text-[10px] font-semibold">
+   552→                    <Sparkles className="w-2.5 h-2.5 mr-1" />
+   553→                    {t('powered_by_ai')}
+   554→                  </Badge>
+   555→                </div>
+   556→                <p className="text-xs text-muted-foreground mt-0.5">
+   557→                  {tr(
+   558→                    'Jana naratif automatik 30 hari terkini menggunakan GLM 5.2.',
+   559→                    'Generate an automatic narrative of the last 30 days using GLM 5.2.',
+   560→                  )}
+   561→                </p>
+   562→              </div>
+   563→            </div>
+   564→
+   565→            <Button
+   566→              onClick={generateAI}
+   567→              disabled={aiLoading}
+   568→              className="bg-gradient-to-r from-teal-500 to-emerald-500 text-white hover:opacity-90 h-10 shadow-md shadow-teal-500/20"
+   569→            >
+   570→              {aiLoading ? (
+   571→                <>
+   572→                  <Loader2 className="w-4 h-4 animate-spin" />
+   573→                  {tr('Menjana...', 'Generating...')}
+   574→                </>
+   575→              ) : (
+   576→                <>
+   577→                  <Sparkles className="w-4 h-4" />
+   578→                  {tr('Jana Ringkasan AI', 'Generate AI Summary')}
+   579→                </>
+   580→              )}
+   581→            </Button>
+   582→          </div>
+   583→
+   584→          {/* Body */}
+   585→          <div className="min-h-[180px]">
+   586→            {/* Loading */}
+   587→            {aiLoading && (
+   588→              <div className="flex flex-col items-center justify-center py-10 text-center">
+   589→                <div className="relative">
+   590→                  <Loader2 className="w-10 h-10 animate-spin text-teal-600" />
+   591→                  <Sparkles className="w-4 h-4 text-amber-500 absolute -top-1 -right-1 animate-pulse" />
+   592→                </div>
+   593→                <p className="mt-4 text-sm font-medium text-teal-700">
+   594→                  {tr('AI sedang menganalisis data...', 'AI is analyzing the data...')}
+   595→                </p>
+   596→                <p className="mt-1 text-[11px] text-muted-foreground">
+   597→                  {tr(
+   598→                    'Proses ini mengambil masa 5–15 saat. Sila tunggu.',
+   599→                    'This process takes 5–15 seconds. Please wait.',
+   600→                  )}
+   601→                </p>
+   602→                <div className="mt-4 flex gap-1">
+   603→                  {[0, 1, 2].map((i) => (
+   604→                    <span
+   605→                      key={i}
+   606→                      className="w-2 h-2 rounded-full bg-teal-400 animate-bounce"
+   607→                      style={{ animationDelay: `${i * 150}ms` }}
+   608→                    />
+   609→                  ))}
+   610→                </div>
+   611→              </div>
+   612→            )}
+   613→
+   614→            {/* Error */}
+   615→            {!aiLoading && aiError && (
+   616→              <Alert className="border-amber-300/70 bg-amber-50/80 text-amber-800">
+   617→                <AlertTriangle className="w-4 h-4" />
+   618→                <AlertDescription>
+   619→                  {tr(
+   620→                    'Perkhidmatan AI tidak tersedia buat sementara. Sila cuba lagi.',
+   621→                    'AI service is temporarily unavailable. Please try again.',
+   622→                  )}
+   623→                </AlertDescription>
+   624→              </Alert>
+   625→            )}
+   626→
+   627→            {/* Success */}
+   628→            {!aiLoading && !aiError && aiSummary && (
+   629→              <div className="rounded-xl border border-teal-200/60 bg-gradient-to-br from-teal-50/60 to-emerald-50/40 p-4 lg:p-5">
+   630→                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-teal-200/40">
+   631→                  <FileText className="w-4 h-4 text-teal-700" />
+   632→                  <span className="text-xs font-semibold text-teal-800 uppercase tracking-wider">
+   633→                    {tr('Laporan Dijana', 'Generated Report')}
+   634→                  </span>
+   635→                  <span className="ml-auto text-[10px] text-muted-foreground">
+   636→                    {new Date().toLocaleString(lang === 'bm' ? 'ms-MY' : 'en-GB', {
+   637→                      day: '2-digit',
+   638→                      month: 'short',
+   639→                      hour: '2-digit',
+   640→                      minute: '2-digit',
+   641→                    })}
+   642→                  </span>
+   643→                </div>
+   644→                <div className="prose prose-sm max-w-none">
+   645→                  <p className="text-sm leading-relaxed text-foreground whitespace-pre-wrap font-sans">
+   646→                    {aiSummary}
+   647→                  </p>
+   648→                </div>
+   649→              </div>
+   650→            )}
+   651→
+   652→            {/* Empty state */}
+   653→            {!aiLoading && !aiError && !aiSummary && (
+   654→              <div className="flex flex-col items-center justify-center py-10 text-center rounded-xl border border-dashed border-teal-200/50 bg-teal-50/20">
+   655→                <div className="w-14 h-14 rounded-full bg-gradient-to-br from-teal-100 to-emerald-100 flex items-center justify-center mb-3">
+   656→                  <Sparkles className="w-6 h-6 text-teal-600" />
+   657→                </div>
+   658→                <p className="text-sm font-medium text-foreground">
+   659→                  {tr('Ringkasan AI belum dijana', 'AI summary not yet generated')}
+   660→                </p>
+   661→                <p className="text-xs text-muted-foreground mt-1 max-w-md">
+   662→                  {tr(
+   663→                    'Klik butang "Jana Ringkasan AI" untuk mendapatkan analisis naratif automatik berdasarkan data 30 hari terkini.',
+   664→                    'Click "Generate AI Summary" to get an automatic narrative analysis based on the last 30 days of data.',
+   665→                  )}
+   666→                </p>
+   667→              </div>
+   668→            )}
+   669→          </div>
+   670→        </div>
+   671→      </GlassCard>
+   672→    </motion.div>
+   673→  );
+   674→}
+   675→
+   676→// ===================== Sub-components =====================
+   677→function ChartEmpty({ tr }: { tr: (bm: string, en: string) => string }) {
+   678→  return (
+   679→    <div className="h-64 flex flex-col items-center justify-center text-center">
+   680→      <div className="w-12 h-12 rounded-full bg-muted/50 flex items-center justify-center mb-2">
+   681→        <Ban className="w-5 h-5 text-muted-foreground" />
+   682→      </div>
+   683→      <p className="text-sm text-muted-foreground">{tr('Tiada data', 'No data')}</p>
+   684→    </div>
+   685→  );
+   686→}
+   687→

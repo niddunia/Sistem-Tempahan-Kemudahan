@@ -638,12 +638,12 @@ function BookingChip({
           }}
           aria-label={`Booking ${booking.bookingRef}`}
         >
-          <div className="flex items-center gap-1 font-semibold text-foreground">
+          <div className="flex items-center gap-1 font-semibold text-foreground min-w-0">
             <Clock className="w-2.5 h-2.5 shrink-0" />
-            <span className="truncate">{booking.startTime}</span>
+            <span className="whitespace-nowrap shrink-0">{booking.startTime}</span>
             {overlap && <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0 ml-auto" />}
           </div>
-          <div className="text-foreground/80 font-medium mt-0.5 line-clamp-1">
+          <div className="text-foreground/80 font-medium mt-0.5 line-clamp-2 break-words min-w-0">
             {booking.programName ?? booking.facility.name}
           </div>
         </button>
@@ -767,19 +767,19 @@ function WeekBookingCard({
           }}
           aria-label={`Booking ${booking.bookingRef}`}
         >
-          <div className="flex items-center justify-between gap-1">
-            <span className="text-[10px] font-mono font-semibold text-foreground flex items-center gap-1">
-              <Clock className="w-2.5 h-2.5" />
+          <div className="flex items-center justify-between gap-1 min-w-0">
+            <span className="text-[10px] font-mono font-semibold text-foreground flex items-center gap-1 min-w-0 whitespace-nowrap shrink-0">
+              <Clock className="w-2.5 h-2.5 shrink-0" />
               {booking.startTime}–{booking.endTime}
             </span>
             {overlap && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
           </div>
-          <div className="text-[11px] font-semibold text-foreground mt-0.5 line-clamp-2">
+          <div className="text-[11px] font-semibold text-foreground mt-0.5 line-clamp-2 break-words min-w-0">
             {booking.programName ?? booking.facility.name}
           </div>
-          <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground">
+          <div className="flex items-center gap-1 mt-1 text-[10px] text-muted-foreground min-w-0">
             <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: booking.facility.colorCode }} />
-            <span className="truncate">{booking.facility.name}</span>
+            <span className="break-words whitespace-normal min-w-0">{booking.facility.name}</span>
           </div>
         </button>
       </PopoverTrigger>
@@ -932,19 +932,19 @@ function DayBookingBlock({
           }}
           aria-label={`Booking ${booking.bookingRef}`}
         >
-          <div className="flex items-start justify-between gap-1">
-            <span className="text-[11px] font-mono font-semibold text-foreground whitespace-nowrap">
+          <div className="flex items-start justify-between gap-1 min-w-0">
+            <span className="text-[11px] font-mono font-semibold text-foreground whitespace-nowrap shrink-0">
               {booking.startTime}–{booking.endTime}
             </span>
             {overlap && <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />}
           </div>
-          <div className="text-[12px] font-semibold text-foreground line-clamp-1 mt-0.5">
+          <div className="text-[12px] font-semibold text-foreground line-clamp-2 break-words min-w-0 mt-0.5">
             {booking.programName ?? booking.facility.name}
           </div>
           {height >= 56 && (
-            <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+            <div className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1 min-w-0">
               <MapPin className="w-2.5 h-2.5 shrink-0" />
-              <span className="truncate">{booking.facility.name}</span>
+              <span className="break-words whitespace-normal min-w-0">{booking.facility.name}</span>
             </div>
           )}
           {height >= 88 && (

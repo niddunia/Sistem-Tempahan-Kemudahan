@@ -387,9 +387,9 @@ export function BookingFormView() {
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-w-0">
         {/* ===== MAIN FORM (2 cols) ===== */}
-        <GlassCard className="lg:col-span-2 p-5 lg:p-6 space-y-5 min-w-0 overflow-visible">
+        <GlassCard className="lg:col-span-2 p-5 lg:p-6 space-y-5 min-w-0 overflow-hidden">
           {/* Category + Facility */}
           <div className="space-y-4">
             <div className="space-y-2">
@@ -483,18 +483,20 @@ export function BookingFormView() {
               <CalendarDays className="w-3 h-3 text-teal-500" />
               {t('form_date')} <span className="text-destructive">*</span>
             </Label>
-            <div className="flex flex-col sm:flex-row gap-3 items-start min-w-0 w-full overflow-visible">
-              <div className="glass-input rounded-lg p-1 inline-block overflow-visible shrink-0">
-                <Calendar
-                  mode="single"
-                  selected={date}
-                  onSelect={setDate}
-                  disabled={(d) => d < today}
-                  locale={locale === 'ms-MY' ? undefined : undefined}
-                  className="text-xs"
-                />
+            <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start min-w-0 w-full">
+              <div className="w-full sm:w-auto sm:shrink-0 max-w-full glass-input rounded-lg p-1 overflow-hidden">
+                <div className="w-full overflow-x-auto scroll-area-thin">
+                  <Calendar
+                    mode="single"
+                    selected={date}
+                    onSelect={setDate}
+                    disabled={(d) => d < today}
+                    locale={locale === 'ms-MY' ? undefined : undefined}
+                    className="text-xs mx-auto"
+                  />
+                </div>
               </div>
-              <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex-1 min-w-0 w-full space-y-2">
                 {date ? (
                   <div className="glass-input rounded-md px-3 py-2.5 text-sm flex items-center gap-2">
                     <CalendarDays className="w-4 h-4 text-teal-500" />
@@ -584,7 +586,7 @@ export function BookingFormView() {
               onChange={(e) => setPurpose(e.target.value)}
               rows={2}
               maxLength={300}
-              placeholder={lang === 'bm' ? 'cth: Latihan pengaturcaraan staf baru' : 'e.g. Programming training for new staff'}
+              placeholder={lang === 'bm' ? 'cth: Latihan Python untuk staf' : 'e.g. Python training for staff'}
               className={cn('glass-input resize-none w-full min-h-[64px]', showErrors && errors.purpose && 'border-destructive ring-destructive/30')}
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
@@ -726,7 +728,7 @@ export function BookingFormView() {
         </GlassCard>
 
         {/* ===== SIDE PANEL (1 col) ===== */}
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           {/* Selected facility info */}
           {selectedFacility ? (
             <GlassCard strong className="p-5 space-y-3">

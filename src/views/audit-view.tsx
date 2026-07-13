@@ -406,7 +406,7 @@ export function AuditView() {
         {/* Table (desktop) — horizontally scrollable on narrow viewports */}
         <div className="lg:overflow-x-auto lg:-mx-1 lg:px-1 lg:pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
           {/* Header (desktop only) */}
-          <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60 lg:min-w-[860px]">
+          <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(180px,220px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60 lg:min-w-[920px]">
             <div className="whitespace-nowrap">{tr('Waktu', 'Timestamp')}</div>
             <div className="whitespace-nowrap">{tr('Pengguna', 'User')}</div>
             <div className="whitespace-nowrap">{tr('Modul', 'Module')}</div>
@@ -417,7 +417,7 @@ export function AuditView() {
           </div>
 
           {/* List */}
-          <div className="mt-2 space-y-1.5 lg:min-w-[860px]">
+          <div className="mt-2 space-y-1.5 lg:min-w-[920px]">
             {isLoading
               ? Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="px-3 py-3 rounded-lg border border-border/40">
@@ -511,7 +511,7 @@ function AuditRow({
         className="w-full text-left px-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 rounded-lg"
       >
         {/* Desktop grid layout */}
-        <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 items-center">
+        <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(180px,220px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 items-center">
           {/* Timestamp */}
           <div className="min-w-0">
             <div className="text-xs font-mono text-foreground truncate">{fmtTimestamp(log.createdAt, lang)}</div>
@@ -526,8 +526,8 @@ function AuditRow({
                   <User className="w-3 h-3 text-white" />
                 </div>
                 <div className="min-w-0">
-                  <div className="text-xs font-medium truncate">{log.user.name}</div>
-                  <div className="text-[10px] text-muted-foreground truncate">{log.user.email}</div>
+                  <div className="text-xs font-medium break-words whitespace-normal">{log.user.name}</div>
+                  <div className="text-[10px] text-muted-foreground break-all">{log.user.email}</div>
                 </div>
               </>
             ) : (
@@ -607,7 +607,7 @@ function AuditRow({
               {log.user ? (
                 <>
                   <User className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{log.user.name}</span>
+                  <span className="break-words whitespace-normal">{log.user.name}</span>
                 </>
               ) : (
                 <>

@@ -1,0 +1,987 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useApp } from '@/lib/store';
+     6→import { useCurrentUser } from '@/hooks/use-current-user';
+     7→import { GlassCard } from '@/components/glass-card';
+     8→import { StatusBadge, RoleBadge } from '@/components/status-badge';
+     9→import { Button } from '@/components/ui/button';
+    10→import { Input } from '@/components/ui/input';
+    11→import { Label } from '@/components/ui/label';
+    12→import { Skeleton } from '@/components/ui/skeleton';
+    13→import {
+    14→  Select,
+    15→  SelectContent,
+    16→  SelectItem,
+    17→  SelectTrigger,
+    18→  SelectValue,
+    19→} from '@/components/ui/select';
+    20→import {
+    21→  Dialog,
+    22→  DialogContent,
+    23→  DialogHeader,
+    24→  DialogTitle,
+    25→  DialogFooter,
+    26→  DialogDescription,
+    27→} from '@/components/ui/dialog';
+    28→import {
+    29→  AlertDialog,
+    30→  AlertDialogAction,
+    31→  AlertDialogCancel,
+    32→  AlertDialogContent,
+    33→  AlertDialogDescription,
+    34→  AlertDialogFooter,
+    35→  AlertDialogHeader,
+    36→  AlertDialogTitle,
+    37→} from '@/components/ui/alert-dialog';
+    38→import {
+    39→  Table,
+    40→  TableHeader,
+    41→  TableBody,
+    42→  TableRow,
+    43→  TableHead,
+    44→  TableCell,
+    45→} from '@/components/ui/table';
+    46→import {
+    47→  Users,
+    48→  UserPlus,
+    49→  Pencil,
+    50→  Trash2,
+    51→  Search,
+    52→  Mail,
+    53→  Phone,
+    54→  BadgeCheck,
+    55→  Lock,
+    56→  Eye,
+    57→  EyeOff,
+    58→  ShieldCheck,
+    59→  Ban,
+    60→  CheckCircle2,
+    61→} from 'lucide-react';
+    62→import { motion } from 'framer-motion';
+    63→import { toast } from 'sonner';
+    64→import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+    65→import { formatDistanceToNow } from 'date-fns';
+    66→import { cn } from '@/lib/utils';
+    67→
+    68→// ===================== Types =====================
+    69→type Role = 'USER' | 'FACILITY_ADMIN' | 'SUPER_ADMIN';
+    70→type UserStatus = 'ACTIVE' | 'SUSPENDED' | 'INACTIVE';
+    71→
+    72→interface User {
+    73→  id: string;
+    74→  email: string;
+    75→  name: string;
+    76→  role: Role;
+    77→  department?: string | null;
+    78→  phone?: string | null;
+    79→  staffId?: string | null;
+    80→  status: UserStatus;
+    81→  lastLoginAt?: string | null;
+    82→  createdAt: string;
+    83→}
+    84→
+    85→interface UserFormState {
+    86→  name: string;
+    87→  email: string;
+    88→  password: string;
+    89→  role: Role;
+    90→  department: string;
+    91→  phone: string;
+    92→  staffId: string;
+    93→  status: UserStatus;
+    94→}
+    95→
+    96→const DEFAULT_FORM: UserFormState = {
+    97→  name: '',
+    98→  email: '',
+    99→  password: '',
+   100→  role: 'USER',
+   101→  department: '',
+   102→  phone: '',
+   103→  staffId: '',
+   104→  status: 'ACTIVE',
+   105→};
+   106→
+   107→const toFormState = (u: User): UserFormState => ({
+   108→  name: u.name ?? '',
+   109→  email: u.email ?? '',
+   110→  password: '',
+   111→  role: u.role ?? 'USER',
+   112→  department: u.department ?? '',
+   113→  phone: u.phone ?? '',
+   114→  staffId: u.staffId ?? '',
+   115→  status: u.status ?? 'ACTIVE',
+   116→});
+   117→
+   118→const initials = (name: string): string => {
+   119→  if (!name) return '?';
+   120→  const parts = name.trim().split(/\s+/);
+   121→  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+   122→  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+   123→};
+   124→
+   125→const avatarColor = (name: string): string => {
+   126→  const palette = [
+   127→    'bg-teal-500/80 text-white',
+   128→    'bg-emerald-500/80 text-white',
+   129→    'bg-amber-500/80 text-white',
+   130→    'bg-rose-500/80 text-white',
+   131→    'bg-fuchsia-500/80 text-white',
+   132→    'bg-lime-500/80 text-white',
+   133→  ];
+   134→  let h = 0;
+   135→  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+   136→  return palette[h % palette.length];
+   137→};
+   138→
+   139→// ===================== Main View =====================
+   140→export function UsersView() {
+   141→  const { t, lang } = useT();
+   142→  const setView = useApp((s) => s.setView);
+   143→  const { isSuperAdmin, user: currentUser } = useCurrentUser();
+   144→  const queryClient = useQueryClient();
+   145→
+   146→  const tr = (bm: string, en: string) => (lang === 'bm' ? bm : en);
+   147→
+   148→  // Filters
+   149→  const [search, setSearch] = useState('');
+   150→  const [roleFilter, setRoleFilter] = useState<string>('ALL');
+   151→  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+   152→
+   153→  // Dialog state
+   154→  const [dialogOpen, setDialogOpen] = useState(false);
+   155→  const [editTarget, setEditTarget] = useState<User | null>(null);
+   156→  const [form, setForm] = useState<UserFormState>(DEFAULT_FORM);
+   157→  const [showPassword, setShowPassword] = useState(false);
+   158→
+   159→  // Suspend confirmation
+   160→  const [suspendTarget, setSuspendTarget] = useState<User | null>(null);
+   161→
+   162→  // Delete confirmation
+   163→  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+   164→
+   165→  // ===================== Query =====================
+   166→  const { data: users, isLoading } = useQuery<User[]>({
+   167→    queryKey: ['users', 'admin'],
+   168→    queryFn: async () => {
+   169→      const r = await fetch('/api/users');
+   170→      if (!r.ok) throw new Error('fetch failed');
+   171→      const j = await r.json();
+   172→      return j.data as User[];
+   173→    },
+   174→    enabled: isSuperAdmin,
+   175→  });
+   176→
+   177→  // ===================== Stats =====================
+   178→  const stats = useMemo(() => {
+   179→    const list = users ?? [];
+   180→    return {
+   181→      total: list.length,
+   182→      users: list.filter((u) => u.role === 'USER').length,
+   183→      facilityAdmins: list.filter((u) => u.role === 'FACILITY_ADMIN').length,
+   184→      superAdmins: list.filter((u) => u.role === 'SUPER_ADMIN').length,
+   185→      active: list.filter((u) => u.status === 'ACTIVE').length,
+   186→      suspended: list.filter((u) => u.status === 'SUSPENDED').length,
+   187→    };
+   188→  }, [users]);
+   189→
+   190→  // ===================== Filtered list =====================
+   191→  const filtered = useMemo(() => {
+   192→    const list = users ?? [];
+   193→    const s = search.trim().toLowerCase();
+   194→    return list.filter((u) => {
+   195→      if (roleFilter !== 'ALL' && u.role !== roleFilter) return false;
+   196→      if (statusFilter !== 'ALL' && u.status !== statusFilter) return false;
+   197→      if (s) {
+   198→        const hay = [u.name, u.email, u.department ?? '', u.staffId ?? ''].join(' ').toLowerCase();
+   199→        if (!hay.includes(s)) return false;
+   200→      }
+   201→      return true;
+   202→    });
+   203→  }, [users, search, roleFilter, statusFilter]);
+   204→
+   205→  // ===================== Mutations =====================
+   206→  const createMutation = useMutation({
+   207→    mutationFn: async (data: UserFormState) => {
+   208→      const body = {
+   209→        name: data.name.trim(),
+   210→        email: data.email.trim(),
+   211→        password: data.password,
+   212→        role: data.role,
+   213→        department: data.department.trim() || undefined,
+   214→        phone: data.phone.trim() || undefined,
+   215→        staffId: data.staffId.trim() || undefined,
+   216→        status: data.status,
+   217→      };
+   218→      const r = await fetch('/api/users', {
+   219→        method: 'POST',
+   220→        headers: { 'Content-Type': 'application/json' },
+   221→        body: JSON.stringify(body),
+   222→      });
+   223→      const j = await r.json().catch(() => ({}));
+   224→      if (!r.ok) throw new Error(j?.message ?? (j?.error === 'exists' ? tr('E-mel telah wujud', 'Email already exists') : 'create failed'));
+   225→      return j.data as User;
+   226→    },
+   227→    onSuccess: () => {
+   228→      toast.success(tr('Pengguna berjaya ditambah', 'User added successfully'));
+   229→      queryClient.invalidateQueries({ queryKey: ['users'] });
+   230→      setDialogOpen(false);
+   231→    },
+   232→    onError: (e: Error) => toast.error(e.message || tr('Gagal menambah pengguna', 'Failed to add user')),
+   233→  });
+   234→
+   235→  const updateMutation = useMutation({
+   236→    mutationFn: async ({ id, data }: { id: string; data: UserFormState }) => {
+   237→      const body: Record<string, unknown> = {
+   238→        name: data.name.trim(),
+   239→        role: data.role,
+   240→        department: data.department.trim() || undefined,
+   241→        phone: data.phone.trim() || undefined,
+   242→        staffId: data.staffId.trim() || undefined,
+   243→        status: data.status,
+   244→      };
+   245→      if (data.password.trim()) body.password = data.password;
+   246→      const r = await fetch(`/api/users/${id}`, {
+   247→        method: 'PATCH',
+   248→        headers: { 'Content-Type': 'application/json' },
+   249→        body: JSON.stringify(body),
+   250→      });
+   251→      const j = await r.json().catch(() => ({}));
+   252→      if (!r.ok) throw new Error(j?.message ?? 'update failed');
+   253→      return j.data as User;
+   254→    },
+   255→    onSuccess: () => {
+   256→      toast.success(tr('Pengguna berjaya dikemas kini', 'User updated successfully'));
+   257→      queryClient.invalidateQueries({ queryKey: ['users'] });
+   258→      setDialogOpen(false);
+   259→    },
+   260→    onError: (e: Error) => toast.error(e.message || tr('Gagal mengemas kini', 'Failed to update')),
+   261→  });
+   262→
+   263→  const suspendMutation = useMutation({
+   264→    mutationFn: async ({ id, status }: { id: string; status: UserStatus }) => {
+   265→      const r = await fetch(`/api/users/${id}`, {
+   266→        method: 'PATCH',
+   267→        headers: { 'Content-Type': 'application/json' },
+   268→        body: JSON.stringify({ status }),
+   269→      });
+   270→      const j = await r.json().catch(() => ({}));
+   271→      if (!r.ok) throw new Error(j?.message ?? 'status update failed');
+   272→      return j.data as User;
+   273→    },
+   274→    onSuccess: (_d, vars) => {
+   275→      const msg = vars.status === 'SUSPENDED'
+   276→        ? tr('Pengguna telah digantung', 'User has been suspended')
+   277→        : tr('Pengguna diaktifkan semula', 'User reactivated');
+   278→      toast.success(msg);
+   279→      queryClient.invalidateQueries({ queryKey: ['users'] });
+   280→      setSuspendTarget(null);
+   281→    },
+   282→    onError: (e: Error) => toast.error(e.message || tr('Gagal menukar status', 'Failed to change status')),
+   283→  });
+   284→
+   285→  const deleteMutation = useMutation({
+   286→    mutationFn: async (id: string) => {
+   287→      const r = await fetch(`/api/users/${id}`, { method: 'DELETE' });
+   288→      const j = await r.json().catch(() => ({}));
+   289→      if (!r.ok) throw new Error(j?.message ?? 'delete failed');
+   290→      return j.data as User;
+   291→    },
+   292→    onSuccess: () => {
+   293→      toast.success(tr('Pengguna berjaya dipadam', 'User deleted successfully'));
+   294→      queryClient.invalidateQueries({ queryKey: ['users'] });
+   295→      setDeleteTarget(null);
+   296→    },
+   297→    onError: (e: Error) => toast.error(e.message || tr('Gagal memadam', 'Failed to delete')),
+   298→  });
+   299→
+   300→  // ===================== Handlers =====================
+   301→  const openCreate = () => {
+   302→    setEditTarget(null);
+   303→    setForm(DEFAULT_FORM);
+   304→    setShowPassword(false);
+   305→    setDialogOpen(true);
+   306→  };
+   307→
+   308→  const openEdit = (u: User) => {
+   309→    setEditTarget(u);
+   310→    setForm(toFormState(u));
+   311→    setShowPassword(false);
+   312→    setDialogOpen(true);
+   313→  };
+   314→
+   315→  const submitForm = () => {
+   316→    if (!form.name.trim() || form.name.trim().length < 3) {
+   317→      toast.error(tr('Nama mesti sekurang-kurangnya 3 aksara', 'Name must be at least 3 characters'));
+   318→      return;
+   319→    }
+   320→    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) {
+   321→      toast.error(tr('E-mel tidak sah', 'Invalid email'));
+   322→      return;
+   323→    }
+   324→    if (!editTarget && form.password.length < 8) {
+   325→      toast.error(tr('Kata laluan mesti sekurang-kurangnya 8 aksara', 'Password must be at least 8 characters'));
+   326→      return;
+   327→    }
+   328→    if (editTarget && form.password && form.password.length < 8) {
+   329→      toast.error(tr('Kata laluan baru mesti sekurang-kurangnya 8 aksara', 'New password must be at least 8 characters'));
+   330→      return;
+   331→    }
+   332→    if (editTarget) {
+   333→      updateMutation.mutate({ id: editTarget.id, data: form });
+   334→    } else {
+   335→      createMutation.mutate(form);
+   336→    }
+   337→  };
+   338→
+   339→  const toggleSuspend = (u: User) => {
+   340→    if (u.status === 'SUSPENDED') {
+   341→      // Reactivate directly
+   342→      suspendMutation.mutate({ id: u.id, status: 'ACTIVE' });
+   343→    } else {
+   344→      // Confirm suspend
+   345→      setSuspendTarget(u);
+   346→    }
+   347→  };
+   348→
+   349→  // ===================== Render =====================
+   350→  if (!isSuperAdmin) {
+   351→    return (
+   352→      <motion.div
+   353→        initial={{ opacity: 0, y: 10 }}
+   354→        animate={{ opacity: 1, y: 0 }}
+   355→        className="space-y-4"
+   356→      >
+   357→        <GlassCard className="p-10 text-center">
+   358→          <ShieldCheck className="w-14 h-14 mx-auto text-amber-500/70 mb-4" />
+   359→          <h2 className="text-xl font-semibold">{tr('Akses Ditolak', 'Access Denied')}</h2>
+   360→          <p className="text-sm text-muted-foreground mt-2">
+   361→            {tr('Hanya Pentadbir Sistem boleh mengakses halaman ini.', 'Only System Admins can access this page.')}
+   362→          </p>
+   363→          <Button variant="outline" onClick={() => setView('dashboard')} className="mt-4 glass-input">
+   364→            {tr('Kembali ke Papan Pemuka', 'Back to Dashboard')}
+   365→          </Button>
+   366→        </GlassCard>
+   367→      </motion.div>
+   368→    );
+   369→  }
+   370→
+   371→  return (
+   372→    <motion.div
+   373→      initial={{ opacity: 0, y: 10 }}
+   374→      animate={{ opacity: 1, y: 0 }}
+   375→      transition={{ duration: 0.3 }}
+   376→      className="space-y-4"
+   377→    >
+   378→      {/* Header */}
+   379→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   380→        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-teal-500/20 blur-3xl pointer-events-none" />
+   381→        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+   382→        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+   383→          <div className="flex items-start gap-3">
+   384→            <div className="hidden sm:grid place-items-center w-12 h-12 rounded-xl gradient-primary text-white shadow-lg shrink-0">
+   385→              <Users className="w-6 h-6" />
+   386→            </div>
+   387→            <div>
+   388→              <h1 className="text-2xl lg:text-3xl font-bold gradient-text leading-tight">
+   389→                {t('nav_users')}
+   390→              </h1>
+   391→              <p className="text-sm text-muted-foreground mt-1">
+   392→                {tr('Urus akaun, peranan dan kebenaran akses pengguna', 'Manage user accounts, roles and access permissions')}
+   393→              </p>
+   394→            </div>
+   395→          </div>
+   396→          <div className="flex items-center gap-2 flex-wrap">
+   397→            <Button variant="outline" size="sm" onClick={() => setView('dashboard')} className="glass-input">
+   398→              {tr('Kembali', 'Back')}
+   399→            </Button>
+   400→            <Button
+   401→              onClick={openCreate}
+   402→              className="gradient-primary text-white shadow-md hover:shadow-lg transition-shadow"
+   403→              size="sm"
+   404→            >
+   405→              <UserPlus className="w-4 h-4 mr-2" />
+   406→              {tr('Tambah Pengguna', 'Add User')}
+   407→            </Button>
+   408→          </div>
+   409→        </div>
+   410→      </GlassCard>
+   411→
+   412→      {/* Stats */}
+   413→      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+   414→        <StatTile
+   415→          icon={<Users className="w-5 h-5" />}
+   416→          label={tr('Jumlah Pengguna', 'Total Users')}
+   417→          value={stats.total}
+   418→          tone="teal"
+   419→          loading={isLoading}
+   420→        />
+   421→        <StatTile
+   422→          icon={<BadgeCheck className="w-5 h-5" />}
+   423→          label={t('role_USER')}
+   424→          value={stats.users}
+   425→          tone="teal"
+   426→          loading={isLoading}
+   427→        />
+   428→        <StatTile
+   429→          icon={<ShieldCheck className="w-5 h-5" />}
+   430→          label={t('role_FACILITY_ADMIN')}
+   431→          value={stats.facilityAdmins}
+   432→          tone="emerald"
+   433→          loading={isLoading}
+   434→        />
+   435→        <StatTile
+   436→          icon={<Lock className="w-5 h-5" />}
+   437→          label={t('role_SUPER_ADMIN')}
+   438→          value={stats.superAdmins}
+   439→          tone="rose"
+   440→          loading={isLoading}
+   441→        />
+   442→        <StatTile
+   443→          icon={<CheckCircle2 className="w-5 h-5" />}
+   444→          label={t('status_ACTIVE')}
+   445→          value={stats.active}
+   446→          tone="emerald"
+   447→          loading={isLoading}
+   448→        />
+   449→        <StatTile
+   450→          icon={<Ban className="w-5 h-5" />}
+   451→          label={t('status_SUSPENDED')}
+   452→          value={stats.suspended}
+   453→          tone="amber"
+   454→          loading={isLoading}
+   455→        />
+   456→      </div>
+   457→
+   458→      {/* Filters */}
+   459→      <GlassCard className="p-4">
+   460→        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
+   461→          <div className="space-y-1.5">
+   462→            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+   463→              <Search className="w-3.5 h-3.5" />
+   464→              {t('search')}
+   465→            </Label>
+   466→            <Input
+   467→              value={search}
+   468→              onChange={(e) => setSearch(e.target.value)}
+   469→              placeholder={tr('Cari nama, e-mel, jabatan, no. pekerja...', 'Search name, email, department, staff ID...')}
+   470→              className="glass-input"
+   471→            />
+   472→          </div>
+   473→          <div className="space-y-1.5">
+   474→            <Label className="text-xs text-muted-foreground">{tr('Peranan', 'Role')}</Label>
+   475→            <Select value={roleFilter} onValueChange={setRoleFilter}>
+   476→              <SelectTrigger className="w-full md:w-48 glass-input">
+   477→                <SelectValue />
+   478→              </SelectTrigger>
+   479→              <SelectContent>
+   480→                <SelectItem value="ALL">{tr('Semua Peranan', 'All Roles')}</SelectItem>
+   481→                <SelectItem value="USER">{t('role_USER')}</SelectItem>
+   482→                <SelectItem value="FACILITY_ADMIN">{t('role_FACILITY_ADMIN')}</SelectItem>
+   483→                <SelectItem value="SUPER_ADMIN">{t('role_SUPER_ADMIN')}</SelectItem>
+   484→              </SelectContent>
+   485→            </Select>
+   486→          </div>
+   487→          <div className="space-y-1.5">
+   488→            <Label className="text-xs text-muted-foreground">{tr('Status', 'Status')}</Label>
+   489→            <Select value={statusFilter} onValueChange={setStatusFilter}>
+   490→              <SelectTrigger className="w-full md:w-44 glass-input">
+   491→                <SelectValue />
+   492→              </SelectTrigger>
+   493→              <SelectContent>
+   494→                <SelectItem value="ALL">{tr('Semua Status', 'All Status')}</SelectItem>
+   495→                <SelectItem value="ACTIVE">{t('status_ACTIVE')}</SelectItem>
+   496→                <SelectItem value="SUSPENDED">{t('status_SUSPENDED')}</SelectItem>
+   497→                <SelectItem value="INACTIVE">{tr('Tidak Aktif', 'Inactive')}</SelectItem>
+   498→              </SelectContent>
+   499→            </Select>
+   500→          </div>
+   501→        </div>
+   502→      </GlassCard>
+   503→
+   504→      {/* Table */}
+   505→      <GlassCard className="p-0 overflow-hidden">
+   506→        <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+   507→          <h2 className="text-sm font-semibold flex items-center gap-2">
+   508→            <Users className="w-4 h-4 text-teal-600" />
+   509→            {tr('Senarai Pengguna', 'User List')}
+   510→          </h2>
+   511→          <span className="text-xs text-muted-foreground">
+   512→            {filtered.length} {tr('rekod', 'records')}
+   513→          </span>
+   514→        </div>
+   515→
+   516→        {isLoading ? (
+   517→          <div className="p-4 space-y-3">
+   518→            {Array.from({ length: 5 }).map((_, i) => (
+   519→              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+   520→            ))}
+   521→          </div>
+   522→        ) : filtered.length === 0 ? (
+   523→          <div className="p-10 text-center">
+   524→            <Users className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
+   525→            <p className="text-sm text-muted-foreground">{t('no_data')}</p>
+   526→            <p className="text-xs text-muted-foreground/70 mt-1">
+   527→              {tr('Tiada pengguna padanan penapis.', 'No users match the filter.')}
+   528→            </p>
+   529→          </div>
+   530→        ) : (
+   531→          <div className="overflow-x-auto scroll-area-thin">
+   532→            <Table>
+   533→              <TableHeader>
+   534→                <TableRow className="bg-muted/30 hover:bg-muted/30">
+   535→                  <TableHead className="pl-4 whitespace-nowrap min-w-[200px]">{t('name')}</TableHead>
+   536→                  <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Peranan', 'Role')}</TableHead>
+   537→                  <TableHead className="whitespace-nowrap min-w-[140px]">{t('department')}</TableHead>
+   538→                  <TableHead className="whitespace-nowrap min-w-[110px]">{t('staffId')}</TableHead>
+   539→                  <TableHead className="whitespace-nowrap min-w-[120px]">{tr('Telefon', 'Phone')}</TableHead>
+   540→                  <TableHead className="whitespace-nowrap min-w-[130px]">{tr('Akhir Log Masuk', 'Last Login')}</TableHead>
+   541→                  <TableHead className="whitespace-nowrap min-w-[100px]">{tr('Status', 'Status')}</TableHead>
+   542→                  <TableHead className="text-right pr-4 whitespace-nowrap min-w-[150px]">{t('actions')}</TableHead>
+   543→                </TableRow>
+   544→              </TableHeader>
+   545→              <TableBody>
+   546→                {filtered.map((u) => {
+   547→                  const isSelf = currentUser?.id === u.id;
+   548→                  return (
+   549→                    <TableRow key={u.id} className="hover:bg-teal-50/40 dark:hover:bg-teal-900/10">
+   550→                      <TableCell className="pl-4">
+   551→                        <div className="flex items-center gap-3">
+   552→                          <div
+   553→                            className={cn(
+   554→                              'grid place-items-center w-9 h-9 rounded-full font-semibold text-xs shrink-0 ring-2 ring-white/60',
+   555→                              avatarColor(u.name || u.email),
+   556→                            )}
+   557→                            aria-hidden
+   558→                          >
+   559→                            {initials(u.name || u.email)}
+   560→                          </div>
+   561→                          <div className="min-w-0">
+   562→                            <p className="font-medium text-sm leading-tight flex items-center gap-1.5">
+   563→                              {u.name}
+   564→                              {isSelf && (
+   565→                                <span className="inline-flex items-center text-[9px] px-1 py-px rounded bg-teal-100 text-teal-700 border border-teal-200">
+   566→                                  {tr('Anda', 'You')}
+   567→                                </span>
+   568→                              )}
+   569→                            </p>
+   570→                            <p className="text-xs text-muted-foreground flex items-center gap-1 mt-0.5">
+   571→                              <Mail className="w-3 h-3" />
+   572→                              <span className="truncate max-w-[200px]">{u.email}</span>
+   573→                            </p>
+   574→                          </div>
+   575→                        </div>
+   576→                      </TableCell>
+   577→                      <TableCell>
+   578→                        <RoleBadge role={u.role} className="whitespace-nowrap" />
+   579→                      </TableCell>
+   580→                      <TableCell>
+   581→                        {u.department ? (
+   582→                          <span className="text-sm text-foreground/80">{u.department}</span>
+   583→                        ) : (
+   584→                          <span className="text-xs text-muted-foreground/60">—</span>
+   585→                        )}
+   586→                      </TableCell>
+   587→                      <TableCell>
+   588→                        {u.staffId ? (
+   589→                          <span className="inline-flex items-center gap-1 text-xs font-mono text-muted-foreground">
+   590→                            <BadgeCheck className="w-3.5 h-3.5 text-teal-500" />
+   591→                            {u.staffId}
+   592→                          </span>
+   593→                        ) : (
+   594→                          <span className="text-xs text-muted-foreground/60">—</span>
+   595→                        )}
+   596→                      </TableCell>
+   597→                      <TableCell>
+   598→                        {u.phone ? (
+   599→                          <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+   600→                            <Phone className="w-3.5 h-3.5" />
+   601→                            {u.phone}
+   602→                          </span>
+   603→                        ) : (
+   604→                          <span className="text-xs text-muted-foreground/60">—</span>
+   605→                        )}
+   606→                      </TableCell>
+   607→                      <TableCell>
+   608→                        {u.lastLoginAt ? (
+   609→                          <span className="text-xs text-muted-foreground" title={u.lastLoginAt}>
+   610→                            {formatDistanceToNow(new Date(u.lastLoginAt), { addSuffix: true })}
+   611→                          </span>
+   612→                        ) : (
+   613→                          <span className="text-xs text-muted-foreground/60">
+   614→                            {tr('Belum log masuk', 'Never logged in')}
+   615→                          </span>
+   616→                        )}
+   617→                      </TableCell>
+   618→                      <TableCell>
+   619→                        <StatusBadge status={u.status} />
+   620→                      </TableCell>
+   621→                      <TableCell className="text-right pr-4">
+   622→                        <div className="inline-flex items-center gap-1">
+   623→                          <Button
+   624→                            variant="outline"
+   625→                            size="sm"
+   626→                            onClick={() => toggleSuspend(u)}
+   627→                            disabled={isSelf}
+   628→                            className={cn(
+   629→                              'glass-input h-8 px-2 text-xs',
+   630→                              u.status === 'SUSPENDED'
+   631→                                ? 'text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 border-emerald-200/60'
+   632→                                : 'text-amber-700 hover:bg-amber-50 hover:text-amber-800 border-amber-200/60',
+   633→                            )}
+   634→                            title={u.status === 'SUSPENDED' ? tr('Aktifkan', 'Activate') : tr('Gantung', 'Suspend')}
+   635→                          >
+   636→                            {u.status === 'SUSPENDED' ? (
+   637→                              <>
+   638→                                <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+   639→                                <span className="hidden md:inline">{tr('Aktif', 'Activate')}</span>
+   640→                              </>
+   641→                            ) : (
+   642→                              <>
+   643→                                <Ban className="w-3.5 h-3.5 mr-1" />
+   644→                                <span className="hidden md:inline">{tr('Gantung', 'Suspend')}</span>
+   645→                              </>
+   646→                            )}
+   647→                          </Button>
+   648→                          <Button
+   649→                            variant="outline"
+   650→                            size="sm"
+   651→                            onClick={() => openEdit(u)}
+   652→                            className="glass-input h-8 w-8 p-0"
+   653→                            title={t('edit')}
+   654→                            aria-label={t('edit')}
+   655→                          >
+   656→                            <Pencil className="w-3.5 h-3.5" />
+   657→                          </Button>
+   658→                          <Button
+   659→                            variant="outline"
+   660→                            size="sm"
+   661→                            onClick={() => setDeleteTarget(u)}
+   662→                            disabled={isSelf}
+   663→                            className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700 border-rose-200/60"
+   664→                            title={t('delete')}
+   665→                            aria-label={t('delete')}
+   666→                          >
+   667→                            <Trash2 className="w-3.5 h-3.5" />
+   668→                          </Button>
+   669→                        </div>
+   670→                      </TableCell>
+   671→                    </TableRow>
+   672→                  );
+   673→                })}
+   674→              </TableBody>
+   675→            </Table>
+   676→          </div>
+   677→        )}
+   678→      </GlassCard>
+   679→
+   680→      {/* Create/Edit Dialog */}
+   681→      <Dialog open={dialogOpen} onOpenChange={(o) => setDialogOpen(o)}>
+   682→        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto scroll-area-thin">
+   683→          <DialogHeader>
+   684→            <DialogTitle className="flex items-center gap-2">
+   685→              <UserPlus className="w-5 h-5 text-teal-600" />
+   686→              {editTarget
+   687→                ? tr('Kemas Kini Pengguna', 'Edit User')
+   688→                : tr('Tambah Pengguna Baharu', 'Add New User')}
+   689→            </DialogTitle>
+   690→            <DialogDescription>
+   691→              {editTarget
+   692→                ? tr('Kemas kini maklumat pengguna ini.', 'Update this user information.')
+   693→                : tr('Isi butiran pengguna baru.', 'Fill in the new user details.')}
+   694→            </DialogDescription>
+   695→          </DialogHeader>
+   696→
+   697→          <div className="grid gap-4 py-2">
+   698→            <div className="grid gap-2">
+   699→              <Label htmlFor="u-name">{t('name')} *</Label>
+   700→              <Input
+   701→                id="u-name"
+   702→                value={form.name}
+   703→                onChange={(e) => setForm({ ...form, name: e.target.value })}
+   704→                placeholder={tr('Nama Penuh', 'Full Name')}
+   705→                className="glass-input"
+   706→              />
+   707→            </div>
+   708→
+   709→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   710→              <div className="grid gap-2">
+   711→                <Label htmlFor="u-email">{t('email')} *</Label>
+   712→                <Input
+   713→                  id="u-email"
+   714→                  type="email"
+   715→                  value={form.email}
+   716→                  onChange={(e) => setForm({ ...form, email: e.target.value })}
+   717→                  placeholder="user@pltt.gov.my"
+   718→                  className="glass-input"
+   719→                  disabled={!!editTarget}
+   720→                />
+   721→                {editTarget && (
+   722→                  <p className="text-xs text-muted-foreground">
+   723→                    {tr('E-mel tidak boleh diubah.', 'Email cannot be changed.')}
+   724→                  </p>
+   725→                )}
+   726→              </div>
+   727→              <div className="grid gap-2">
+   728→                <Label htmlFor="u-staff">{t('staffId')}</Label>
+   729→                <Input
+   730→                  id="u-staff"
+   731→                  value={form.staffId}
+   732→                  onChange={(e) => setForm({ ...form, staffId: e.target.value })}
+   733→                  placeholder={tr('cth. JTM-2024-001', 'e.g. JTM-2024-001')}
+   734→                  className="glass-input"
+   735→                />
+   736→              </div>
+   737→            </div>
+   738→
+   739→            <div className="grid gap-2">
+   740→              <Label htmlFor="u-pass" className="flex items-center gap-1.5">
+   741→                <Lock className="w-3.5 h-3.5" />
+   742→                {t('password')}
+   743→                {editTarget && (
+   744→                  <span className="text-xs text-muted-foreground font-normal">
+   745→                    ({tr('kosongkan jika tidak diubah', 'leave blank to keep')})
+   746→                  </span>
+   747→                )}
+   748→                {!editTarget && <span className="text-rose-600">*</span>}
+   749→              </Label>
+   750→              <div className="relative">
+   751→                <Input
+   752→                  id="u-pass"
+   753→                  type={showPassword ? 'text' : 'password'}
+   754→                  value={form.password}
+   755→                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+   756→                  placeholder={editTarget ? '••••••••' : tr('Minimum 8 aksara', 'Minimum 8 characters')}
+   757→                  className="glass-input pr-10"
+   758→                />
+   759→                <Button
+   760→                  type="button"
+   761→                  variant="ghost"
+   762→                  size="sm"
+   763→                  onClick={() => setShowPassword(!showPassword)}
+   764→                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-muted-foreground hover:text-foreground"
+   765→                  aria-label={showPassword ? tr('Sembunyikan kata laluan', 'Hide password') : tr('Tunjukkan kata laluan', 'Show password')}
+   766→                >
+   767→                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+   768→                </Button>
+   769→              </div>
+   770→              {editTarget && form.password && (
+   771→                <p className="text-xs text-amber-700">
+   772→                  {tr('Kata laluan baharu akan ditetapkan.', 'A new password will be set.')}
+   773→                </p>
+   774→              )}
+   775→            </div>
+   776→
+   777→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   778→              <div className="grid gap-2">
+   779→                <Label>{tr('Peranan', 'Role')} *</Label>
+   780→                <Select
+   781→                  value={form.role}
+   782→                  onValueChange={(v) => setForm({ ...form, role: v as Role })}
+   783→                >
+   784→                  <SelectTrigger className="w-full glass-input">
+   785→                    <SelectValue />
+   786→                  </SelectTrigger>
+   787→                  <SelectContent>
+   788→                    <SelectItem value="USER">{t('role_USER')}</SelectItem>
+   789→                    <SelectItem value="FACILITY_ADMIN">{t('role_FACILITY_ADMIN')}</SelectItem>
+   790→                    <SelectItem value="SUPER_ADMIN">{t('role_SUPER_ADMIN')}</SelectItem>
+   791→                  </SelectContent>
+   792→                </Select>
+   793→              </div>
+   794→              <div className="grid gap-2">
+   795→                <Label>{tr('Status', 'Status')}</Label>
+   796→                <Select
+   797→                  value={form.status}
+   798→                  onValueChange={(v) => setForm({ ...form, status: v as UserStatus })}
+   799→                >
+   800→                  <SelectTrigger className="w-full glass-input">
+   801→                    <SelectValue />
+   802→                  </SelectTrigger>
+   803→                  <SelectContent>
+   804→                    <SelectItem value="ACTIVE">{t('status_ACTIVE')}</SelectItem>
+   805→                    <SelectItem value="SUSPENDED">{t('status_SUSPENDED')}</SelectItem>
+   806→                    <SelectItem value="INACTIVE">{tr('Tidak Aktif', 'Inactive')}</SelectItem>
+   807→                  </SelectContent>
+   808→                </Select>
+   809→              </div>
+   810→            </div>
+   811→
+   812→            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+   813→              <div className="grid gap-2">
+   814→                <Label htmlFor="u-dept">{t('department')}</Label>
+   815→                <Input
+   816→                  id="u-dept"
+   817→                  value={form.department}
+   818→                  onChange={(e) => setForm({ ...form, department: e.target.value })}
+   819→                  placeholder={tr('cth. Unit Latihan', 'e.g. Training Unit')}
+   820→                  className="glass-input"
+   821→                />
+   822→              </div>
+   823→              <div className="grid gap-2">
+   824→                <Label htmlFor="u-phone">{t('phone')}</Label>
+   825→                <Input
+   826→                  id="u-phone"
+   827→                  value={form.phone}
+   828→                  onChange={(e) => setForm({ ...form, phone: e.target.value })}
+   829→                  placeholder="03-12345678"
+   830→                  className="glass-input"
+   831→                />
+   832→              </div>
+   833→            </div>
+   834→          </div>
+   835→
+   836→          <DialogFooter className="gap-2">
+   837→            <Button variant="outline" onClick={() => setDialogOpen(false)} className="glass-input">
+   838→              {t('close')}
+   839→            </Button>
+   840→            <Button
+   841→              onClick={submitForm}
+   842→              disabled={createMutation.isPending || updateMutation.isPending}
+   843→              className="gradient-primary text-white"
+   844→            >
+   845→              {(createMutation.isPending || updateMutation.isPending) && (
+   846→                <span className="mr-2 h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+   847→              )}
+   848→              {editTarget ? t('save') : tr('Tambah', 'Add')}
+   849→            </Button>
+   850→          </DialogFooter>
+   851→        </DialogContent>
+   852→      </Dialog>
+   853→
+   854→      {/* Suspend Confirmation */}
+   855→      <AlertDialog
+   856→        open={!!suspendTarget}
+   857→        onOpenChange={(o) => !o && setSuspendTarget(null)}
+   858→      >
+   859→        <AlertDialogContent>
+   860→          <AlertDialogHeader>
+   861→            <AlertDialogTitle className="flex items-center gap-2 text-amber-700">
+   862→              <Ban className="w-5 h-5" />
+   863→              {tr('Gantung Pengguna', 'Suspend User')}
+   864→            </AlertDialogTitle>
+   865→            <AlertDialogDescription>
+   866→              {tr(
+   867→                `Adakah anda pasti mahu menggantung akaun "${suspendTarget?.name ?? ''}"?`,
+   868→                `Are you sure you want to suspend the account "${suspendTarget?.name ?? ''}"?`,
+   869→              )}
+   870→              <span className="block mt-2 text-amber-700">
+   871→                {tr('Pengguna tidak akan boleh log masuk sehingga diaktifkan semula.', 'The user will be unable to sign in until reactivated.')}
+   872→              </span>
+   873→            </AlertDialogDescription>
+   874→          </AlertDialogHeader>
+   875→          <AlertDialogFooter>
+   876→            <AlertDialogCancel>{t('no')}</AlertDialogCancel>
+   877→            <AlertDialogAction
+   878→              onClick={() => {
+   879→                if (suspendTarget) {
+   880→                  suspendMutation.mutate({ id: suspendTarget.id, status: 'SUSPENDED' });
+   881→                }
+   882→              }}
+   883→              disabled={suspendMutation.isPending}
+   884→              className="bg-amber-600 hover:bg-amber-700 text-white"
+   885→            >
+   886→              {suspendMutation.isPending ? t('loading') : tr('Gantung', 'Suspend')}
+   887→            </AlertDialogAction>
+   888→          </AlertDialogFooter>
+   889→        </AlertDialogContent>
+   890→      </AlertDialog>
+   891→
+   892→      {/* Delete Confirmation */}
+   893→      <AlertDialog
+   894→        open={!!deleteTarget}
+   895→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   896→      >
+   897→        <AlertDialogContent>
+   898→          <AlertDialogHeader>
+   899→            <AlertDialogTitle className="flex items-center gap-2 text-rose-700">
+   900→              <Trash2 className="w-5 h-5" />
+   901→              {tr('Padam Pengguna', 'Delete User')}
+   902→            </AlertDialogTitle>
+   903→            <AlertDialogDescription>
+   904→              {tr(
+   905→                `Adakah anda pasti mahu memadam akaun "${deleteTarget?.name ?? ''}"?`,
+   906→                `Are you sure you want to delete the account "${deleteTarget?.name ?? ''}"?`,
+   907→              )}
+   908→              <span className="block mt-2 text-rose-700">
+   909→                {tr(
+   910→                  'Tindakan ini akan menetapkan status pengguna kepada Tidak Aktif (padam lembut).',
+   911→                  'This action sets the user status to Inactive (soft delete).',
+   912→                )}
+   913→              </span>
+   914→            </AlertDialogDescription>
+   915→          </AlertDialogHeader>
+   916→          <AlertDialogFooter>
+   917→            <AlertDialogCancel>{t('no')}</AlertDialogCancel>
+   918→            <AlertDialogAction
+   919→              onClick={() => {
+   920→                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+   921→              }}
+   922→              disabled={deleteMutation.isPending}
+   923→              className="bg-rose-600 hover:bg-rose-700 text-white"
+   924→            >
+   925→              {deleteMutation.isPending ? t('loading') : t('delete')}
+   926→            </AlertDialogAction>
+   927→          </AlertDialogFooter>
+   928→        </AlertDialogContent>
+   929→      </AlertDialog>
+   930→
+   931→      {/* Footer info */}
+   932→      {currentUser && (
+   933→        <p className="text-xs text-muted-foreground text-center pt-2">
+   934→          {tr('Log masuk sebagai', 'Logged in as')}{' '}
+   935→          <span className="font-medium text-foreground/80">{currentUser.name}</span>{' '}
+   936→          ·{' '}
+   937→          {currentUser.role === 'SUPER_ADMIN'
+   938→            ? t('role_SUPER_ADMIN')
+   939→            : currentUser.role === 'FACILITY_ADMIN'
+   940→              ? t('role_FACILITY_ADMIN')
+   941→              : t('role_USER')}
+   942→        </p>
+   943→      )}
+   944→    </motion.div>
+   945→  );
+   946→}
+   947→
+   948→// ===================== Stat Tile =====================
+   949→function StatTile({
+   950→  icon,
+   951→  label,
+   952→  value,
+   953→  tone,
+   954→  loading,
+   955→}: {
+   956→  icon: React.ReactNode;
+   957→  label: string;
+   958→  value: number;
+   959→  tone: 'teal' | 'emerald' | 'amber' | 'rose' | 'zinc';
+   960→  loading?: boolean;
+   961→}) {
+   962→  const toneClasses: Record<string, string> = {
+   963→    teal: 'bg-teal-500/15 text-teal-700 dark:text-teal-300',
+   964→    emerald: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+   965→    amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+   966→    rose: 'bg-rose-500/15 text-rose-700 dark:text-rose-300',
+   967→    zinc: 'bg-zinc-500/15 text-zinc-700 dark:text-zinc-300',
+   968→  };
+   969→  return (
+   970→    <GlassCard className="p-4 flex items-center gap-3">
+   971→      <div className={cn('grid place-items-center w-10 h-10 rounded-xl shrink-0', toneClasses[tone])}>
+   972→        {icon}
+   973→      </div>
+   974→      <div className="min-w-0">
+   975→        <p className="text-[11px] text-muted-foreground truncate uppercase tracking-wide">{label}</p>
+   976→        {loading ? (
+   977→          <Skeleton className="h-6 w-12 mt-1" />
+   978→        ) : (
+   979→          <p className="text-xl font-bold leading-tight">{value.toLocaleString()}</p>
+   980→        )}
+   981→      </div>
+   982→    </GlassCard>
+   983→  );
+   984→}
+   985→
+   986→export default UsersView;
+   987→

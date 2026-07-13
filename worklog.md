@@ -485,3 +485,103 @@ Stage Summary:
   1. Column overflow — fixed via `minmax()` grid template + `lg:min-w-[860px]` + `lg:overflow-x-auto` scroll container with thin scrollbar.
   2. Action text cut-off ("LOGIN_S__") — fixed by replacing `truncate` with `whitespace-nowrap` and giving the TINDAKAN column a guaranteed 140px minimum.
   3. Pagination misalignment — fixed by stacking + centring on mobile, restoring spread on sm+, with `whitespace-nowrap` on the page indicator.
+
+---
+Task ID: FIX2-sidebar-booking
+Agent: Visual Bug Fixer (Sidebar + Booking Form)
+
+Task: Fix sidebar nav text truncation + booking form calendar overflow
+
+Work Log:
+
+1. src/components/sidebar.tsx — Sidebar nav text truncation
+   - User card: removed `truncate` on department line; replaced with `break-words leading-tight` so department text wraps onto multiple lines instead of being cut off (kept `truncate` on user.name only, since names are short).
+   - Nav buttons: removed `truncate` on the label span; added `min-w-0` to the `<button>` and `flex-1 min-w-0 break-words leading-tight` to the label span so labels like "Pengurusan Kemudahan" wrap to a second line rather than truncate. Reduced font from `text-sm` to `text-[13px]` for better fit. Added `text-left` so wrapped lines align properly. Icon keeps `shrink-0` (was `flex-shrink-0`) so it never gets squeezed.
+   - "Log Keluar" button: added `min-w-0 whitespace-normal break-words` to the Button and wrapped the label in `<span className="flex-1 min-w-0 text-left leading-tight">` with the LogOut icon marked `shrink-0`, so the logout text can never be truncated even on very narrow viewports.
+
+2. src/views/booking-form-view.tsx — Calendar overflow
+   - Outer grid: changed `lg:grid-cols-3 gap-4` → `lg:grid-cols-3 gap-6` for clearer column separation (per spec).
+   - Main form GlassCard: changed `overflow-visible` → `overflow-hidden` so the calendar can no longer spill out of the card and overlap the side panel.
+   - Date row container: removed `overflow-visible`; rewrote as `flex flex-col sm:flex-row gap-3 items-stretch sm:items-start min-w-0 w-full` so the calendar and date display stack cleanly on mobile and sit side-by-side on desktop without overflowing.
+   - Calendar wrapper: replaced `inline-block overflow-visible shrink-0` with `w-full sm:w-auto sm:shrink-0 max-w-full glass-input rounded-lg p-1 overflow-hidden`. Added an inner `<div className="w-full overflow-x-auto scroll-area-thin">` so the calendar can scroll horizontally if its intrinsic width (~280px) ever exceeds the available column width — preventing any overflow into the side panel.
+   - Calendar component: added `mx-auto` to className so it centers nicely inside its scrollable container.
+   - Side panel container: added `min-w-0` so the right column cannot be pushed or overlapped.
+   - Purpose placeholder: shortened BM text from "cth: Latihan pengaturcaraan staf baru" → "cth: Latihan Python untuk staf" (28 chars) and the BI equivalent from "e.g. Programming training for new staff" → "e.g. Python training for staff" so the placeholder no longer gets cut off in the textarea.
+
+3. Verification
+   - `bun run lint` → no errors, no warnings (clean output).
+   - Dev server compiles cleanly (verified via dev.log: "✓ Compiled" entries, no errors).
+   - Glassmorphism style, teal/emerald/amber palette, and bilingual BM/BI preserved.
+   - No other files modified.
+
+Stage Summary:
+- Sidebar: nav labels now wrap instead of truncating; "Pengurusan Kemudahan" and "Log Keluar" display in full.
+- Booking form: July 2026 calendar is constrained inside its GlassCard via `overflow-hidden` + inner `overflow-x-auto`, so it can no longer overlap the right side panel; placeholder text fits in the textarea.
+
+---
+Task ID: FIX2-facilities-users
+Agent: Facilities/Users View Fixer
+Task: Fix remaining table truncation in facilities-view.tsx and users-view.tsx
+
+Work Log:
+- Read worklog.md and both view files (facilities-view.tsx ~964 lines, users-view.tsx ~987 lines).
+- ONLY modified src/views/facilities-view.tsx and src/views/users-view.tsx (no other files touched).
+
+Fixes — facilities-view.tsx:
+1. Equipment column header: min-w increased from 220px → 280px so chips have room.
+2. Equipment cell: removed the `max-w-[260px]` constraint on the chips container (was forcing overflow/truncation). Now `flex flex-wrap gap-1` with no max-width, so chips wrap to multiple lines naturally.
+3. Equipment chips: now renders ALL equipment items via `equip.map(...)` instead of `equip.slice(0, 3)` + "+N" badge — no more hidden/truncated equipment. Each chip keeps `whitespace-normal break-words`.
+4. StatTile label: removed `truncate`, changed to `text-[10px] sm:text-[11px] ... break-words leading-tight` so "Jumlah Kapasiti" / "Total Capacity" wraps fully instead of being cut off. Added `flex-1` to text container so it fills available card width.
+5. Table already had `overflow-x-auto scroll-area-thin` — kept as is.
+
+Fixes — users-view.tsx:
+1. StatTile label: removed `truncate`, changed to `text-[10px] sm:text-[11px] ... break-words leading-tight` so "DIGANTUNG", "PENTADBIR KEMUDAHAN", "PENTADBIR SISTEM" display in full (wrap to 2 lines if needed). Added `flex-1` to text container.
+2. Name column header: min-w increased 200px → 220px.
+3. Name cell: removed `flex items-center gap-1.5` from name `<p>` (was preventing text wrap), replaced with `break-words` so long names like "Ahmad Faizal bin Rahman" wrap instead of truncating. "Anda/You" badge kept inline with `ml-1 align-middle`.
+4. Email line: added `min-w-0` to both the `<p>` and inner `<span>` so `truncate` works correctly within flex without squishing; removed arbitrary `max-w-[200px]`. Mail icon gets `shrink-0`.
+5. Phone column header: min-w increased 120px → 140px.
+6. Phone cell: added `whitespace-nowrap` to span and `shrink-0` to Phone icon; phone number wrapped in inner `<span className="break-words">` so full numbers like "+6012-345 6789" display without being cut to "1 m".
+7. Actions column header: min-w increased 150px → 180px so suspend/edit/delete buttons fit.
+8. Suspend/Activate button: added `shrink-0 whitespace-nowrap` so its label ("Gantung"/"Aktif") is never truncated. Edit/Delete buttons already icon-only with fixed `w-8 h-8`.
+
+Verification:
+- `bun run lint` — passes with no errors.
+- No CRUD logic, mutations, dialogs, or API calls changed — only className/layout adjustments.
+- Glassmorphism, teal/emerald/amber palette, and BM/BI bilingual labels all preserved.
+
+Stage Summary:
+- Facilities table: equipment chips now display all items with wrapping; stat labels (esp. "Jumlah Kapasiti") no longer truncated.
+- Users table: phone numbers, names, action button labels, and stat labels ("DIGANTUNG", "PENTADBIR KEMUDAHAN", etc.) all display in full.
+
+---
+Task ID: FIX2-calendar-analytics-audit
+Agent: Visual Bug Fixer (Calendar / Analytics / Audit)
+
+Task: Fix three visual truncation/overlap bugs across Calendar, Analytics, and Audit views.
+
+Work Log:
+- Read worklog.md and the three target files: src/views/calendar-view.tsx, src/views/analytics-view.tsx, src/views/audit-view.tsx.
+- Located all `truncate` / `line-clamp-1` occurrences on booking titles & facility names, and the recharts config for the Top Facilities / Peak Hours / Status Pie.
+
+Fixes applied — src/views/calendar-view.tsx:
+- Month mode (BookingChip): title `line-clamp-1` → `line-clamp-2 break-words min-w-0`; time label `truncate` → `whitespace-nowrap shrink-0`; added `min-w-0` to the time/title flex container so the chip can shrink.
+- Week mode (WeekBookingCard): title already `line-clamp-2` — added `break-words min-w-0`; facility name `truncate` → `break-words whitespace-normal min-w-0`; time span gets `whitespace-nowrap shrink-0 min-w-0`; added `min-w-0` to both the time row and the facility row.
+- Day mode (DayBookingBlock): title `line-clamp-1` → `line-clamp-2 break-words min-w-0`; facility name `truncate` → `break-words whitespace-normal min-w-0`; time span gets `shrink-0`; added `min-w-0` to the time row and facility row. Kept `overflow-hidden` on the block button (required for fixed-height clipping) — text now wraps inside via `line-clamp-2`.
+- Time labels everywhere retain `whitespace-nowrap shrink-0` so they never break.
+
+Fixes applied — src/views/analytics-view.tsx:
+- Top Facilities horizontal BarChart: increased YAxis `width` 120 → 140, reduced tick `fontSize` 11 → 10 (both axes), increased right `margin` 16 → 24 for bar-end breathing room, relaxed `tickFormatter` truncation threshold 18 → 22 chars so "Dewan Kuliah 2" no longer gets cut, changed Bar `radius` from `[0,6,6,0]` → `[0,4,4,0]` per spec. Labels no longer collide with bars.
+- Peak Hours BarChart: XAxis `tick` fontSize 11 → 10 and added `interval={0}` so all 15 hour labels (08–22) render without skipping/overlap; YAxis fontSize 11 → 10; relaxed left `margin` from `-16` → `-8` to avoid clipping YAxis numbers.
+- Status PieChart Legend: bumped `height` 36 → 40 and added `paddingTop: 4px` to `wrapperStyle` for extra vertical breathing room (already had `verticalAlign: 'bottom'` + fontSize 11).
+
+Fixes applied — src/views/audit-view.tsx:
+- Desktop grid header & row template: widened PENGUNA column from `minmax(150px,180px)` → `minmax(180px,220px)`; bumped `lg:min-w` from `860px` → `920px` on both the header and the list wrapper so the wider column doesn't squeeze others.
+- User name cell (desktop): `text-xs font-medium truncate` → `text-xs font-medium break-words whitespace-normal` so "Ahmad Faizal bin Rahman" wraps fully.
+- User email (desktop): `text-[10px] truncate` → `text-[10px] break-all` so long emails wrap character-by-character.
+- Mobile stacked user name: `truncate` → `break-words whitespace-normal`.
+- Kept `lg:overflow-x-auto` on the table wrapper (already present) so the wider min-width scrolls horizontally on narrower lg viewports.
+
+Verification:
+- `bun run lint` → clean (no errors/warnings) for all three modified files.
+- Dev server compiles successfully (dev.log shows ✓ Compiled with no errors after edits).
+- No other files touched. Glassmorphism style, teal/emerald/amber palette, and BM/BI bilingual labels all preserved.

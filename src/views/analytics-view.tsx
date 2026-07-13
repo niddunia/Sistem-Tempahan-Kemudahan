@@ -427,10 +427,10 @@ export function AnalyticsView() {
                 <Tooltip contentStyle={TOOLTIP_STYLE} />
                 <Legend
                   verticalAlign="bottom"
-                  height={36}
+                  height={40}
                   iconType="circle"
                   formatter={(value: string) => t(`status_${value}` as TranslationKey)}
-                  wrapperStyle={{ fontSize: '11px' }}
+                  wrapperStyle={{ fontSize: '11px', paddingTop: '4px' }}
                 />
               </PieChart>
             </ResponsiveContainer>
@@ -463,17 +463,17 @@ export function AnalyticsView() {
               <BarChart
                 data={facilityData}
                 layout="vertical"
-                margin={{ top: 4, right: 16, left: 8, bottom: 4 }}
+                margin={{ top: 4, right: 24, left: 8, bottom: 4 }}
               >
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
                 <YAxis
                   type="category"
                   dataKey="name"
-                  tick={{ fontSize: 11, fill: 'currentColor' }}
+                  tick={{ fontSize: 10, fill: 'currentColor' }}
                   stroke="rgba(0,0,0,0.15)"
-                  width={120}
-                  tickFormatter={(v: string) => (v.length > 18 ? v.slice(0, 17) + '…' : v)}
+                  width={140}
+                  tickFormatter={(v: string) => (v.length > 22 ? v.slice(0, 21) + '…' : v)}
                 />
                 <Tooltip
                   contentStyle={TOOLTIP_STYLE}
@@ -483,7 +483,7 @@ export function AnalyticsView() {
                     props?.payload?.category ?? tr('Bilangan', 'Count'),
                   ]}
                 />
-                <Bar dataKey="count" radius={[0, 6, 6, 0]} barSize={22}>
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} barSize={22}>
                   {facilityData.map((_, idx) => (
                     <Cell key={idx} fill={FACILITY_PALETTE[idx % FACILITY_PALETTE.length]} />
                   ))}
@@ -516,10 +516,10 @@ export function AnalyticsView() {
             <ChartEmpty tr={tr} />
           ) : (
             <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={hourData} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
+              <BarChart data={hourData} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.06)" vertical={false} />
-                <XAxis dataKey="hour" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" />
-                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
+                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" interval={0} />
+                <YAxis tick={{ fontSize: 10, fill: 'currentColor' }} stroke="rgba(0,0,0,0.15)" allowDecimals={false} />
                 <Tooltip
                   contentStyle={TOOLTIP_STYLE}
                   cursor={{ fill: 'rgba(20,184,166,0.08)' }}

@@ -90,7 +90,7 @@ export function Sidebar() {
             </Avatar>
             <div className="flex-1 min-w-0">
               <div className="text-xs font-semibold truncate">{user.name}</div>
-              <div className="text-[10px] text-muted-foreground truncate">{user.department || user.email}</div>
+              <div className="text-[10px] text-muted-foreground break-words leading-tight">{user.department || user.email}</div>
             </div>
             <RoleBadge role={user.role} className="ml-auto" />
           </div>
@@ -111,14 +111,14 @@ export function Sidebar() {
                 key={item.key}
                 onClick={() => setView(item.key)}
                 className={cn(
-                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all',
+                  'w-full min-w-0 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all text-left',
                   active
                     ? 'gradient-primary text-white shadow-lg shadow-teal-500/25'
                     : 'text-foreground/80 hover:bg-foreground/5 hover:text-foreground',
                 )}
               >
-                <Icon className="w-4 h-4 flex-shrink-0" />
-                <span className="truncate">{item.label}</span>
+                <Icon className="w-4 h-4 shrink-0" />
+                <span className="flex-1 min-w-0 break-words leading-tight">{item.label}</span>
               </button>
             );
           })}
@@ -131,10 +131,10 @@ export function Sidebar() {
               onClick={() => signOut().then(() => window.location.reload())}
               variant="ghost"
               size="sm"
-              className="w-full justify-start gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20"
+              className="w-full min-w-0 justify-start gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20 whitespace-normal break-words"
             >
-              <LogOut className="w-4 h-4" />
-              {t('sign_out')}
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span className="flex-1 min-w-0 text-left leading-tight">{t('sign_out')}</span>
             </Button>
           ) : (
             <Button

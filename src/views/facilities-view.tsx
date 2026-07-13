@@ -524,7 +524,7 @@ export function FacilitiesView() {
                   <TableHead className="text-center whitespace-nowrap min-w-[90px]">{t('form_participants')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[160px]">{tr('Lokasi', 'Location')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Waktu Operasi', 'Operating Hours')}</TableHead>
-                  <TableHead className="whitespace-nowrap min-w-[220px]">{tr('Peralatan', 'Equipment')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[280px]">{tr('Peralatan', 'Equipment')}</TableHead>
                   <TableHead className="whitespace-nowrap min-w-[100px]">{tr('Status', 'Status')}</TableHead>
                   <TableHead className="text-right pr-4 whitespace-nowrap min-w-[160px]">{t('actions')}</TableHead>
                 </TableRow>
@@ -588,8 +588,8 @@ export function FacilitiesView() {
                         {equip.length === 0 ? (
                           <span className="text-xs text-muted-foreground/60">—</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1 max-w-[260px]">
-                            {equip.slice(0, 3).map((e, i) => (
+                          <div className="flex flex-wrap gap-1">
+                            {equip.map((e, i) => (
                               <span
                                 key={`${f.id}-eq-${i}`}
                                 className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 whitespace-normal break-words"
@@ -597,11 +597,6 @@ export function FacilitiesView() {
                                 {e}
                               </span>
                             ))}
-                            {equip.length > 3 && (
-                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border whitespace-nowrap">
-                                +{equip.length - 3}
-                              </span>
-                            )}
                           </div>
                         )}
                       </TableCell>
@@ -948,8 +943,8 @@ function StatTile({
       <div className={cn('grid place-items-center w-10 h-10 rounded-xl shrink-0', toneClasses[tone])}>
         {icon}
       </div>
-      <div className="min-w-0">
-        <p className="text-[11px] text-muted-foreground truncate uppercase tracking-wide">{label}</p>
+      <div className="min-w-0 flex-1">
+        <p className="text-[10px] sm:text-[11px] text-muted-foreground uppercase tracking-wide break-words leading-tight">{label}</p>
         {loading ? (
           <Skeleton className="h-6 w-12 mt-1" />
         ) : (

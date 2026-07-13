@@ -1,0 +1,755 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useCurrentUser } from '@/hooks/use-current-user';
+     6→import { GlassCard } from '@/components/glass-card';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Badge } from '@/components/ui/badge';
+     9→import { Skeleton } from '@/components/ui/skeleton';
+    10→import { Input } from '@/components/ui/input';
+    11→import {
+    12→  Select,
+    13→  SelectContent,
+    14→  SelectItem,
+    15→  SelectTrigger,
+    16→  SelectValue,
+    17→} from '@/components/ui/select';
+    18→import { Alert, AlertDescription } from '@/components/ui/alert';
+    19→import {
+    20→  ShieldAlert,
+    21→  Activity,
+    22→  AlertTriangle,
+    23→  AlertCircle,
+    24→  Info,
+    25→  User,
+    26→  Globe,
+    27→  Search,
+    28→  ChevronLeft,
+    29→  ChevronRight,
+    30→  ChevronDown,
+    31→  ChevronUp,
+    32→  FileText,
+    33→  Cpu,
+    34→  ScrollText,
+    35→} from 'lucide-react';
+    36→import { motion, AnimatePresence } from 'framer-motion';
+    37→import { useQuery } from '@tanstack/react-query';
+    38→import { format } from 'date-fns';
+    39→import { cn } from '@/lib/utils';
+    40→
+    41→// ===================== Types =====================
+    42→interface AuditLogUser {
+    43→  id: string;
+    44→  name: string;
+    45→  email: string;
+    46→  role: string;
+    47→}
+    48→
+    49→interface AuditLog {
+    50→  id: string;
+    51→  userId: string | null;
+    52→  module: string;
+    53→  action: string;
+    54→  entity: string | null;
+    55→  entityId: string | null;
+    56→  ipAddress: string | null;
+    57→  userAgent: string | null;
+    58→  details: string | null;
+    59→  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+    60→  createdAt: string;
+    61→  user: AuditLogUser | null;
+    62→}
+    63→
+    64→interface AuditResponse {
+    65→  data: AuditLog[];
+    66→  pagination: {
+    67→    page: number;
+    68→    pageSize: number;
+    69→    total: number;
+    70→    totalPages: number;
+    71→  };
+    72→}
+    73→
+    74→// ===================== Constants =====================
+    75→const MODULE_COLORS: Record<string, string> = {
+    76→  AUTH: 'text-teal-700 bg-teal-100/70 border-teal-300/60',
+    77→  BOOKING: 'text-emerald-700 bg-emerald-100/70 border-emerald-300/60',
+    78→  APPROVAL: 'text-violet-700 bg-violet-100/70 border-violet-300/60',
+    79→  FACILITY: 'text-amber-700 bg-amber-100/70 border-amber-300/60',
+    80→  USER_MGMT: 'text-rose-700 bg-rose-100/70 border-rose-300/60',
+    81→  SYSTEM: 'text-zinc-600 bg-zinc-100/70 border-zinc-300/60',
+    82→  AI: 'text-pink-700 bg-pink-100/70 border-pink-300/60',
+    83→};
+    84→
+    85→const SEVERITY_CONFIG: Record<
+    86→  string,
+    87→  { cls: string; icon: typeof Info; label: { bm: string; en: string } }
+    88→> = {
+    89→  INFO: {
+    90→    cls: 'text-teal-700 bg-teal-100/70 border-teal-300/60',
+    91→    icon: Info,
+    92→    label: { bm: 'Maklumat', en: 'Info' },
+    93→  },
+    94→  WARNING: {
+    95→    cls: 'text-amber-700 bg-amber-100/70 border-amber-300/60',
+    96→    icon: AlertTriangle,
+    97→    label: { bm: 'Amaran', en: 'Warning' },
+    98→  },
+    99→  CRITICAL: {
+   100→    cls: 'text-rose-700 bg-rose-100/70 border-rose-300/60',
+   101→    icon: AlertCircle,
+   102→    label: { bm: 'Kritikal', en: 'Critical' },
+   103→  },
+   104→};
+   105→
+   106→const MODULES = ['AUTH', 'BOOKING', 'APPROVAL', 'FACILITY', 'USER_MGMT', 'SYSTEM', 'AI'] as const;
+   107→const SEVERITIES = ['INFO', 'WARNING', 'CRITICAL'] as const;
+   108→
+   109→// ===================== Helpers =====================
+   110→const fmtTimestamp = (iso: string, lang: 'bm' | 'en') => {
+   111→  try {
+   112→    const d = new Date(iso);
+   113→    return format(d, lang === 'bm' ? 'dd MMM yyyy, HH:mm:ss' : 'dd MMM yyyy, HH:mm:ss');
+   114→  } catch {
+   115→    return iso;
+   116→  }
+   117→};
+   118→
+   119→const fmtRelative = (iso: string, lang: 'bm' | 'en') => {
+   120→  const diff = Date.now() - new Date(iso).getTime();
+   121→  const mins = Math.floor(diff / 60_000);
+   122→  if (mins < 1) return lang === 'bm' ? 'baru saja' : 'just now';
+   123→  if (mins < 60) return lang === 'bm' ? `${mins} minit lalu` : `${mins}m ago`;
+   124→  const hrs = Math.floor(mins / 60);
+   125→  if (hrs < 24) return lang === 'bm' ? `${hrs} jam lalu` : `${hrs}h ago`;
+   126→  const days = Math.floor(hrs / 24);
+   127→  return lang === 'bm' ? `${days} hari lalu` : `${days}d ago`;
+   128→};
+   129→
+   130→const parseDetails = (raw: string | null): string | null => {
+   131→  if (!raw) return null;
+   132→  try {
+   133→    return JSON.stringify(JSON.parse(raw), null, 2);
+   134→  } catch {
+   135→    return raw;
+   136→  }
+   137→};
+   138→
+   139→const maskIp = (ip: string | null): string => {
+   140→  if (!ip) return '—';
+   141→  // Show first two octets for IPv4, mask the rest (PDPA-friendly preview)
+   142→  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+   143→    const parts = ip.split('.');
+   144→    return `${parts[0]}.${parts[1]}.*.*`;
+   145→  }
+   146→  return ip;
+   147→};
+   148→
+   149→// ===================== Main View =====================
+   150→export function AuditView() {
+   151→  const { t, lang } = useT();
+   152→  const { user } = useCurrentUser();
+   153→  const tr = (bm: string, en: string) => (lang === 'bm' ? bm : en);
+   154→
+   155→  const [page, setPage] = useState(1);
+   156→  const [moduleFilter, setModuleFilter] = useState<string>('all');
+   157→  const [severityFilter, setSeverityFilter] = useState<string>('all');
+   158→  const [search, setSearch] = useState('');
+   159→  const [expandedId, setExpandedId] = useState<string | null>(null);
+   160→
+   161→  const pageSize = 50;
+   162→
+   163→  // ---- Main audit log fetch ----
+   164→  const { data, isLoading, isError } = useQuery<AuditResponse>({
+   165→    queryKey: ['audit', page, pageSize, moduleFilter, severityFilter],
+   166→    queryFn: async () => {
+   167→      const params = new URLSearchParams({
+   168→        page: String(page),
+   169→        pageSize: String(pageSize),
+   170→      });
+   171→      if (moduleFilter !== 'all') params.set('module', moduleFilter);
+   172→      if (severityFilter !== 'all') params.set('severity', severityFilter);
+   173→      const r = await fetch(`/api/audit?${params.toString()}`, { credentials: 'include' });
+   174→      if (!r.ok) throw new Error('failed');
+   175→      return (await r.json()) as AuditResponse;
+   176→    },
+   177→    enabled: !!user,
+   178→  });
+   179→
+   180→  // ---- Severity count fetches (parallel, small) ----
+   181→  const useSeverityCount = (sev: string) =>
+   182→    useQuery<number>({
+   183→      queryKey: ['audit-count', sev, moduleFilter],
+   184→      queryFn: async () => {
+   185→        const params = new URLSearchParams({ page: '1', pageSize: '1', severity: sev });
+   186→        if (moduleFilter !== 'all') params.set('module', moduleFilter);
+   187→        const r = await fetch(`/api/audit?${params.toString()}`, { credentials: 'include' });
+   188→        if (!r.ok) throw new Error('failed');
+   189→        const j = (await r.json()) as AuditResponse;
+   190→        return j.pagination.total;
+   191→      },
+   192→      enabled: !!user,
+   193→    });
+   194→
+   195→  const { data: infoCount } = useSeverityCount('INFO');
+   196→  const { data: warnCount } = useSeverityCount('WARNING');
+   197→  const { data: critCount } = useSeverityCount('CRITICAL');
+   198→
+   199→  // ---- Client-side search filter (action / user name/email) ----
+   200→  const filteredLogs = useMemo(() => {
+   201→    if (!data?.data) return [];
+   202→    const s = search.trim().toLowerCase();
+   203→    if (!s) return data.data;
+   204→    return data.data.filter(
+   205→      (l) =>
+   206→        l.action.toLowerCase().includes(s) ||
+   207→        (l.user?.name ?? '').toLowerCase().includes(s) ||
+   208→        (l.user?.email ?? '').toLowerCase().includes(s) ||
+   209→        (l.entity ?? '').toLowerCase().includes(s) ||
+   210→        (l.entityId ?? '').toLowerCase().includes(s),
+   211→    );
+   212→  }, [data, search]);
+   213→
+   214→  const pagination = data?.pagination;
+   215→  const totalPages = pagination?.totalPages ?? 1;
+   216→  const currentPage = pagination?.page ?? 1;
+   217→  const totalRecords = pagination?.total ?? 0;
+   218→
+   219→  const statTiles = useMemo(
+   220→    () => [
+   221→      {
+   222→        key: 'total',
+   223→        label: tr('Jumlah Log', 'Total Logs'),
+   224→        value: totalRecords,
+   225→        icon: ScrollText,
+   226→        gradient: 'from-teal-400 to-teal-600',
+   227→        glow: 'bg-teal-500/15',
+   228→      },
+   229→      {
+   230→        key: 'info',
+   231→        label: tr('Maklumat', 'Info'),
+   232→        value: infoCount ?? 0,
+   233→        icon: Info,
+   234→        gradient: 'from-teal-400 to-emerald-500',
+   235→        glow: 'bg-teal-500/15',
+   236→      },
+   237→      {
+   238→        key: 'warning',
+   239→        label: tr('Amaran', 'Warning'),
+   240→        value: warnCount ?? 0,
+   241→        icon: AlertTriangle,
+   242→        gradient: 'from-amber-400 to-orange-500',
+   243→        glow: 'bg-amber-500/15',
+   244→      },
+   245→      {
+   246→        key: 'critical',
+   247→        label: tr('Kritikal', 'Critical'),
+   248→        value: critCount ?? 0,
+   249→        icon: AlertCircle,
+   250→        gradient: 'from-rose-400 to-rose-600',
+   251→        glow: 'bg-rose-500/15',
+   252→      },
+   253→    ],
+   254→    [totalRecords, infoCount, warnCount, critCount, tr],
+   255→  );
+   256→
+   257→  const toggleExpand = (id: string) => {
+   258→    setExpandedId((prev) => (prev === id ? null : id));
+   259→  };
+   260→
+   261→  const resetFilters = () => {
+   262→    setModuleFilter('all');
+   263→    setSeverityFilter('all');
+   264→    setSearch('');
+   265→    setPage(1);
+   266→  };
+   267→
+   268→  // ===================== Render =====================
+   269→  return (
+   270→    <motion.div
+   271→      initial={{ opacity: 0, y: 10 }}
+   272→      animate={{ opacity: 1, y: 0 }}
+   273→      transition={{ duration: 0.3 }}
+   274→      className="space-y-4 lg:space-y-6"
+   275→    >
+   276→      {/* ===== Header ===== */}
+   277→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   278→        <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-rose-500/10 blur-3xl pointer-events-none" />
+   279→        <div className="absolute -bottom-16 -left-12 w-56 h-56 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   280→        <div className="relative z-10">
+   281→          <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   282→            <ShieldAlert className="w-3 h-3" />
+   283→            <span>{t('nav_audit')}</span>
+   284→          </div>
+   285→          <h2 className="text-xl lg:text-2xl font-bold gradient-text">
+   286→            {tr('Log Audit Sistem', 'System Audit Log')}
+   287→          </h2>
+   288→          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+   289→            {tr(
+   290→              'Jejak semua aktiviti sistem — pengesahan, tempahan, kelulusan & perubahan pentadbir.',
+   291→              'Track all system activity — authentication, bookings, approvals & admin changes.',
+   292→            )}
+   293→          </p>
+   294→        </div>
+   295→      </GlassCard>
+   296→
+   297→      {/* ===== Stats Row ===== */}
+   298→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+   299→        {statTiles.map((tile) => {
+   300→          const Icon = tile.icon;
+   301→          return (
+   302→            <GlassCard key={tile.key} className="p-5 relative overflow-hidden">
+   303→              <div className={cn('absolute -right-4 -top-4 w-20 h-20 rounded-full blur-2xl', tile.glow)} />
+   304→              <div className="relative z-10 flex items-center gap-3">
+   305→                <div
+   306→                  className={cn(
+   307→                    'w-11 h-11 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-lg shrink-0',
+   308→                    tile.gradient,
+   309→                  )}
+   310→                >
+   311→                  <Icon className="w-5 h-5 text-white" />
+   312→                </div>
+   313→                <div className="min-w-0">
+   314→                  <div className="text-2xl lg:text-3xl font-bold tracking-tight">{tile.value}</div>
+   315→                  <div className="text-xs text-muted-foreground truncate">{tile.label}</div>
+   316→                </div>
+   317→              </div>
+   318→            </GlassCard>
+   319→          );
+   320→        })}
+   321→      </div>
+   322→
+   323→      {/* ===== Filters + Table ===== */}
+   324→      <GlassCard className="p-4 lg:p-5">
+   325→        {/* Filter bar */}
+   326→        <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+   327→          <div className="flex items-center gap-2 text-sm font-semibold shrink-0">
+   328→            <Cpu className="w-4 h-4 text-teal-600" />
+   329→            {tr('Tapis Log', 'Filter Logs')}
+   330→          </div>
+   331→
+   332→          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:items-center gap-2 flex-1">
+   333→            {/* Module select */}
+   334→            <Select value={moduleFilter} onValueChange={(v) => { setModuleFilter(v); setPage(1); }}>
+   335→              <SelectTrigger className="h-9 w-full lg:w-[180px] text-xs">
+   336→                <SelectValue placeholder={tr('Modul', 'Module')} />
+   337→              </SelectTrigger>
+   338→              <SelectContent>
+   339→                <SelectItem value="all">{tr('Semua Modul', 'All Modules')}</SelectItem>
+   340→                {MODULES.map((m) => (
+   341→                  <SelectItem key={m} value={m}>{m}</SelectItem>
+   342→                ))}
+   343→              </SelectContent>
+   344→            </Select>
+   345→
+   346→            {/* Severity select */}
+   347→            <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
+   348→              <SelectTrigger className="h-9 w-full lg:w-[160px] text-xs">
+   349→                <SelectValue placeholder={tr('Keterukan', 'Severity')} />
+   350→              </SelectTrigger>
+   351→              <SelectContent>
+   352→                <SelectItem value="all">{tr('Semua Keterukan', 'All Severities')}</SelectItem>
+   353→                {SEVERITIES.map((s) => (
+   354→                  <SelectItem key={s} value={s}>{s}</SelectItem>
+   355→                ))}
+   356→              </SelectContent>
+   357→            </Select>
+   358→
+   359→            {/* Search */}
+   360→            <div className="relative flex-1 min-w-0">
+   361→              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+   362→              <Input
+   363→                value={search}
+   364→                onChange={(e) => setSearch(e.target.value)}
+   365→                placeholder={tr('Cari tindakan / pengguna / entiti...', 'Search action / user / entity...')}
+   366→                className="h-9 pl-9 text-xs"
+   367→              />
+   368→            </div>
+   369→
+   370→            {(moduleFilter !== 'all' || severityFilter !== 'all' || search) && (
+   371→              <Button variant="ghost" size="sm" onClick={resetFilters} className="h-9 text-xs shrink-0">
+   372→                {tr('Reset', 'Reset')}
+   373→              </Button>
+   374→            )}
+   375→          </div>
+   376→        </div>
+   377→
+   378→        {/* Result count */}
+   379→        <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+   380→          <span>
+   381→            {isLoading
+   382→              ? t('loading')
+   383→              : tr(
+   384→                  `${filteredLogs.length} rekod dipaparkan daripada ${totalRecords} jumlah`,
+   385→                  `${filteredLogs.length} records shown of ${totalRecords} total`,
+   386→                )}
+   387→          </span>
+   388→          <span className="hidden sm:inline">
+   389→            {tr('Halaman', 'Page')} {currentPage} / {Math.max(totalPages, 1)}
+   390→          </span>
+   391→        </div>
+   392→
+   393→        {/* Error state */}
+   394→        {isError && (
+   395→          <Alert className="border-rose-300/60 bg-rose-50/70 text-rose-800 mb-4">
+   396→            <AlertCircle className="w-4 h-4" />
+   397→            <AlertDescription>
+   398→              {tr(
+   399→                'Anda tidak mempunyai kebenaran atau log tidak dapat dimuatkan.',
+   400→                'You do not have permission or logs could not be loaded.',
+   401→              )}
+   402→            </AlertDescription>
+   403→          </Alert>
+   404→        )}
+   405→
+   406→        {/* Table (desktop) — horizontally scrollable on narrow viewports */}
+   407→        <div className="lg:overflow-x-auto lg:-mx-1 lg:px-1 lg:pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
+   408→          {/* Header (desktop only) */}
+   409→          <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60 lg:min-w-[860px]">
+   410→            <div className="whitespace-nowrap">{tr('Waktu', 'Timestamp')}</div>
+   411→            <div className="whitespace-nowrap">{tr('Pengguna', 'User')}</div>
+   412→            <div className="whitespace-nowrap">{tr('Modul', 'Module')}</div>
+   413→            <div className="whitespace-nowrap">{tr('Tindakan', 'Action')}</div>
+   414→            <div className="whitespace-nowrap">{tr('Entiti', 'Entity')}</div>
+   415→            <div className="whitespace-nowrap">IP</div>
+   416→            <div></div>
+   417→          </div>
+   418→
+   419→          {/* List */}
+   420→          <div className="mt-2 space-y-1.5 lg:min-w-[860px]">
+   421→            {isLoading
+   422→              ? Array.from({ length: 8 }).map((_, i) => (
+   423→                  <div key={i} className="px-3 py-3 rounded-lg border border-border/40">
+   424→                    <Skeleton className="h-4 w-full mb-2" />
+   425→                    <Skeleton className="h-3 w-2/3" />
+   426→                  </div>
+   427→                ))
+   428→              : filteredLogs.length === 0
+   429→              ? <EmptyState tr={tr} />
+   430→              : filteredLogs.map((log) => (
+   431→                <AuditRow
+   432→                  key={log.id}
+   433→                  log={log}
+   434→                  lang={lang}
+   435→                  expanded={expandedId === log.id}
+   436→                  onToggle={() => toggleExpand(log.id)}
+   437→                  tr={tr}
+   438→                />
+   439→              ))}
+   440→          </div>
+   441→        </div>
+   442→
+   443→        {/* Pagination */}
+   444→        {!isLoading && filteredLogs.length > 0 && (
+   445→          <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-3 mt-4 pt-3 border-t border-border/60">
+   446→            <Button
+   447→              variant="outline"
+   448→              size="sm"
+   449→              onClick={() => setPage((p) => Math.max(1, p - 1))}
+   450→              disabled={currentPage <= 1}
+   451→              className="h-8 w-full sm:w-auto justify-center"
+   452→            >
+   453→              <ChevronLeft className="w-4 h-4" />
+   454→              {tr('Sebelum', 'Prev')}
+   455→            </Button>
+   456→
+   457→            <span className="text-xs text-muted-foreground text-center whitespace-nowrap">
+   458→              {tr('Halaman', 'Page')} <span className="font-semibold text-foreground">{currentPage}</span> {tr('daripada', 'of')} <span className="font-semibold text-foreground">{Math.max(totalPages, 1)}</span>
+   459→            </span>
+   460→
+   461→            <Button
+   462→              variant="outline"
+   463→              size="sm"
+   464→              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   465→              disabled={currentPage >= totalPages}
+   466→              className="h-8 w-full sm:w-auto justify-center"
+   467→            >
+   468→              {tr('Seterus', 'Next')}
+   469→              <ChevronRight className="w-4 h-4" />
+   470→            </Button>
+   471→          </div>
+   472→        )}
+   473→      </GlassCard>
+   474→    </motion.div>
+   475→  );
+   476→}
+   477→
+   478→// ===================== Audit Row =====================
+   479→function AuditRow({
+   480→  log,
+   481→  lang,
+   482→  expanded,
+   483→  onToggle,
+   484→  tr,
+   485→}: {
+   486→  log: AuditLog;
+   487→  lang: 'bm' | 'en';
+   488→  expanded: boolean;
+   489→  onToggle: () => void;
+   490→  tr: (bm: string, en: string) => string;
+   491→}) {
+   492→  const sevCfg = SEVERITY_CONFIG[log.severity] ?? SEVERITY_CONFIG.INFO;
+   493→  const SevIcon = sevCfg.icon;
+   494→  const moduleCls = MODULE_COLORS[log.module] ?? 'text-zinc-600 bg-zinc-100/70 border-zinc-300/60';
+   495→  const prettyDetails = useMemo(() => parseDetails(log.details), [log.details]);
+   496→
+   497→  return (
+   498→    <div
+   499→      className={cn(
+   500→        'rounded-lg border transition-all',
+   501→        expanded
+   502→          ? 'border-teal-300/60 bg-teal-50/30 shadow-sm'
+   503→          : 'border-border/40 hover:border-teal-200/60 hover:bg-muted/30',
+   504→      )}
+   505→    >
+   506→      {/* Clickable row */}
+   507→      <button
+   508→        type="button"
+   509→        onClick={onToggle}
+   510→        aria-expanded={expanded}
+   511→        className="w-full text-left px-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 rounded-lg"
+   512→      >
+   513→        {/* Desktop grid layout */}
+   514→        <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 items-center">
+   515→          {/* Timestamp */}
+   516→          <div className="min-w-0">
+   517→            <div className="text-xs font-mono text-foreground truncate">{fmtTimestamp(log.createdAt, lang)}</div>
+   518→            <div className="text-[10px] text-muted-foreground">{fmtRelative(log.createdAt, lang)}</div>
+   519→          </div>
+   520→
+   521→          {/* User */}
+   522→          <div className="min-w-0 flex items-center gap-1.5">
+   523→            {log.user ? (
+   524→              <>
+   525→                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center shrink-0">
+   526→                  <User className="w-3 h-3 text-white" />
+   527→                </div>
+   528→                <div className="min-w-0">
+   529→                  <div className="text-xs font-medium truncate">{log.user.name}</div>
+   530→                  <div className="text-[10px] text-muted-foreground truncate">{log.user.email}</div>
+   531→                </div>
+   532→              </>
+   533→            ) : (
+   534→              <div className="flex items-center gap-1.5">
+   535→                <div className="w-6 h-6 rounded-full bg-zinc-200 flex items-center justify-center shrink-0">
+   536→                  <Cpu className="w-3 h-3 text-zinc-500" />
+   537→                </div>
+   538→                <span className="text-xs text-muted-foreground italic">{tr('Sistem', 'System')}</span>
+   539→              </div>
+   540→            )}
+   541→          </div>
+   542→
+   543→          {/* Module badge */}
+   544→          <div>
+   545→            <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap', moduleCls)}>
+   546→              {log.module}
+   547→            </span>
+   548→          </div>
+   549→
+   550→          {/* Action + severity */}
+   551→          <div className="min-w-0 flex items-center gap-2">
+   552→            <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 whitespace-nowrap', sevCfg.cls)}>
+   553→              <SevIcon className="w-2.5 h-2.5" />
+   554→            </span>
+   555→            <span className="text-xs font-medium whitespace-nowrap font-mono">{log.action}</span>
+   556→          </div>
+   557→
+   558→          {/* Entity */}
+   559→          <div className="min-w-0 text-xs">
+   560→            {log.entity ? (
+   561→              <div className="flex items-center gap-1 min-w-0">
+   562→                <span className="text-muted-foreground whitespace-nowrap">{log.entity}</span>
+   563→                {log.entityId && (
+   564→                  <span className="font-mono text-[10px] text-muted-foreground/70 whitespace-nowrap">#{log.entityId.slice(0, 8)}</span>
+   565→                )}
+   566→              </div>
+   567→            ) : (
+   568→              <span className="text-muted-foreground/50">—</span>
+   569→            )}
+   570→          </div>
+   571→
+   572→          {/* IP */}
+   573→          <div className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">{maskIp(log.ipAddress)}</div>
+   574→
+   575→          {/* Chevron */}
+   576→          <div className="flex justify-end">
+   577→            {expanded ? (
+   578→              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+   579→            ) : (
+   580→              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+   581→            )}
+   582→          </div>
+   583→        </div>
+   584→
+   585→        {/* Mobile stacked layout */}
+   586→        <div className="lg:hidden space-y-2">
+   587→          <div className="flex items-center justify-between gap-2">
+   588→            <div className="flex items-center gap-1.5 flex-wrap">
+   589→              <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap', moduleCls)}>
+   590→                {log.module}
+   591→              </span>
+   592→              <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap', sevCfg.cls)}>
+   593→                <SevIcon className="w-2.5 h-2.5" />
+   594→                {log.severity}
+   595→              </span>
+   596→            </div>
+   597→            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+   598→              {fmtRelative(log.createdAt, lang)}
+   599→              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+   600→            </div>
+   601→          </div>
+   602→
+   603→          <div className="text-xs font-mono font-medium break-all">{log.action}</div>
+   604→
+   605→          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+   606→            <div className="flex items-center gap-1.5 min-w-0">
+   607→              {log.user ? (
+   608→                <>
+   609→                  <User className="w-3 h-3 shrink-0" />
+   610→                  <span className="truncate">{log.user.name}</span>
+   611→                </>
+   612→              ) : (
+   613→                <>
+   614→                  <Cpu className="w-3 h-3 shrink-0" />
+   615→                  <span className="italic">{tr('Sistem', 'System')}</span>
+   616→                </>
+   617→              )}
+   618→            </div>
+   619→            <span className="font-mono whitespace-nowrap">{maskIp(log.ipAddress)}</span>
+   620→          </div>
+   621→
+   622→          <div className="text-[10px] text-muted-foreground font-mono">
+   623→            {fmtTimestamp(log.createdAt, lang)}
+   624→          </div>
+   625→        </div>
+   626→      </button>
+   627→
+   628→      {/* Expanded details */}
+   629→      <AnimatePresence initial={false}>
+   630→        {expanded && (
+   631→          <motion.div
+   632→            initial={{ height: 0, opacity: 0 }}
+   633→            animate={{ height: 'auto', opacity: 1 }}
+   634→            exit={{ height: 0, opacity: 0 }}
+   635→            transition={{ duration: 0.2 }}
+   636→            className="overflow-hidden"
+   637→          >
+   638→            <div className="px-3 pb-3 pt-1 border-t border-border/40 mt-1 space-y-3">
+   639→              {/* Meta grid */}
+   640→              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+   641→                <DetailField
+   642→                  icon={User}
+   643→                  label={tr('Pengguna', 'User')}
+   644→                  value={
+   645→                    log.user
+   646→                      ? `${log.user.name}\n${log.user.email}\n${log.user.role}`
+   647→                      : tr('Sistem (tiada pengguna)', 'System (no user)')
+   648→                  }
+   649→                />
+   650→                <DetailField
+   651→                  icon={Activity}
+   652→                  label={tr('Tindakan', 'Action')}
+   653→                  value={log.action}
+   654→                  mono
+   655→                />
+   656→                <DetailField
+   657→                  icon={FileText}
+   658→                  label={tr('Entiti', 'Entity')}
+   659→                  value={
+   660→                    log.entity
+   661→                      ? `${log.entity}${log.entityId ? ` #${log.entityId}` : ''}`
+   662→                      : '—'
+   663→                  }
+   664→                  mono
+   665→                />
+   666→                <DetailField
+   667→                  icon={Globe}
+   668→                  label={tr('Alamat IP', 'IP Address')}
+   669→                  value={log.ipAddress ?? '—'}
+   670→                  mono
+   671→                />
+   672→              </div>
+   673→
+   674→              {/* User agent */}
+   675→              {log.userAgent && (
+   676→                <div className="rounded-lg bg-muted/40 border border-border/40 p-3">
+   677→                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+   678→                    <Globe className="w-3 h-3" />
+   679→                    {tr('User Agent', 'User Agent')}
+   680→                  </div>
+   681→                  <p className="text-[11px] font-mono text-muted-foreground break-all">{log.userAgent}</p>
+   682→                </div>
+   683→              )}
+   684→
+   685→              {/* Pretty-printed details */}
+   686→              {prettyDetails && (
+   687→                <div className="rounded-lg bg-zinc-900/95 border border-zinc-700/50 p-3 overflow-x-auto">
+   688→                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-teal-300 font-semibold mb-2">
+   689→                    <FileText className="w-3 h-3" />
+   690→                    {tr('Butiran (JSON)', 'Details (JSON)')}
+   691→                  </div>
+   692→                  <pre className="text-[11px] font-mono text-zinc-100 whitespace-pre-wrap break-all leading-relaxed">
+   693→                    {prettyDetails}
+   694→                  </pre>
+   695→                </div>
+   696→              )}
+   697→
+   698→              {!prettyDetails && !log.userAgent && (
+   699→                <p className="text-xs text-muted-foreground italic text-center py-2">
+   700→                  {tr('Tiada butiran tambahan.', 'No additional details.')}
+   701→                </p>
+   702→              )}
+   703→            </div>
+   704→          </motion.div>
+   705→        )}
+   706→      </AnimatePresence>
+   707→    </div>
+   708→  );
+   709→}
+   710→
+   711→// ===================== Detail Field =====================
+   712→function DetailField({
+   713→  icon: Icon,
+   714→  label,
+   715→  value,
+   716→  mono,
+   717→}: {
+   718→  icon: typeof User;
+   719→  label: string;
+   720→  value: string;
+   721→  mono?: boolean;
+   722→}) {
+   723→  return (
+   724→    <div className="min-w-0">
+   725→      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+   726→        <Icon className="w-3 h-3" />
+   727→        {label}
+   728→      </div>
+   729→      <p className={cn('text-xs text-foreground whitespace-pre-wrap break-all', mono && 'font-mono')}>
+   730→        {value}
+   731→      </p>
+   732→    </div>
+   733→  );
+   734→}
+   735→
+   736→// ===================== Empty State =====================
+   737→function EmptyState({ tr }: { tr: (bm: string, en: string) => string }) {
+   738→  return (
+   739→    <div className="flex flex-col items-center justify-center py-12 text-center">
+   740→      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-teal-100 to-emerald-100 flex items-center justify-center mb-3">
+   741→        <ScrollText className="w-7 h-7 text-teal-600" />
+   742→      </div>
+   743→      <p className="text-sm font-medium text-foreground">
+   744→        {tr('Tiada log audit dijumpai', 'No audit logs found')}
+   745→      </p>
+   746→      <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+   747→        {tr(
+   748→          'Cuba ubah penapis atau gelintar untuk mencari log yang dikehendaki.',
+   749→          'Try adjusting filters or search to find the logs you need.',
+   750→        )}
+   751→      </p>
+   752→    </div>
+   753→  );
+   754→}
+   755→
