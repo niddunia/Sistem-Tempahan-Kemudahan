@@ -1,0 +1,752 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useCurrentUser } from '@/hooks/use-current-user';
+     6→import { GlassCard } from '@/components/glass-card';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Badge } from '@/components/ui/badge';
+     9→import { Skeleton } from '@/components/ui/skeleton';
+    10→import { Input } from '@/components/ui/input';
+    11→import {
+    12→  Select,
+    13→  SelectContent,
+    14→  SelectItem,
+    15→  SelectTrigger,
+    16→  SelectValue,
+    17→} from '@/components/ui/select';
+    18→import { Alert, AlertDescription } from '@/components/ui/alert';
+    19→import {
+    20→  ShieldAlert,
+    21→  Activity,
+    22→  AlertTriangle,
+    23→  AlertCircle,
+    24→  Info,
+    25→  User,
+    26→  Globe,
+    27→  Search,
+    28→  ChevronLeft,
+    29→  ChevronRight,
+    30→  ChevronDown,
+    31→  ChevronUp,
+    32→  FileText,
+    33→  Cpu,
+    34→  ScrollText,
+    35→} from 'lucide-react';
+    36→import { motion, AnimatePresence } from 'framer-motion';
+    37→import { useQuery } from '@tanstack/react-query';
+    38→import { format } from 'date-fns';
+    39→import { cn } from '@/lib/utils';
+    40→
+    41→// ===================== Types =====================
+    42→interface AuditLogUser {
+    43→  id: string;
+    44→  name: string;
+    45→  email: string;
+    46→  role: string;
+    47→}
+    48→
+    49→interface AuditLog {
+    50→  id: string;
+    51→  userId: string | null;
+    52→  module: string;
+    53→  action: string;
+    54→  entity: string | null;
+    55→  entityId: string | null;
+    56→  ipAddress: string | null;
+    57→  userAgent: string | null;
+    58→  details: string | null;
+    59→  severity: 'INFO' | 'WARNING' | 'CRITICAL';
+    60→  createdAt: string;
+    61→  user: AuditLogUser | null;
+    62→}
+    63→
+    64→interface AuditResponse {
+    65→  data: AuditLog[];
+    66→  pagination: {
+    67→    page: number;
+    68→    pageSize: number;
+    69→    total: number;
+    70→    totalPages: number;
+    71→  };
+    72→}
+    73→
+    74→// ===================== Constants =====================
+    75→const MODULE_COLORS: Record<string, string> = {
+    76→  AUTH: 'text-teal-700 bg-teal-100/70 border-teal-300/60',
+    77→  BOOKING: 'text-emerald-700 bg-emerald-100/70 border-emerald-300/60',
+    78→  APPROVAL: 'text-violet-700 bg-violet-100/70 border-violet-300/60',
+    79→  FACILITY: 'text-amber-700 bg-amber-100/70 border-amber-300/60',
+    80→  USER_MGMT: 'text-rose-700 bg-rose-100/70 border-rose-300/60',
+    81→  SYSTEM: 'text-zinc-600 bg-zinc-100/70 border-zinc-300/60',
+    82→  AI: 'text-pink-700 bg-pink-100/70 border-pink-300/60',
+    83→};
+    84→
+    85→const SEVERITY_CONFIG: Record<
+    86→  string,
+    87→  { cls: string; icon: typeof Info; label: { bm: string; en: string } }
+    88→> = {
+    89→  INFO: {
+    90→    cls: 'text-teal-700 bg-teal-100/70 border-teal-300/60',
+    91→    icon: Info,
+    92→    label: { bm: 'Maklumat', en: 'Info' },
+    93→  },
+    94→  WARNING: {
+    95→    cls: 'text-amber-700 bg-amber-100/70 border-amber-300/60',
+    96→    icon: AlertTriangle,
+    97→    label: { bm: 'Amaran', en: 'Warning' },
+    98→  },
+    99→  CRITICAL: {
+   100→    cls: 'text-rose-700 bg-rose-100/70 border-rose-300/60',
+   101→    icon: AlertCircle,
+   102→    label: { bm: 'Kritikal', en: 'Critical' },
+   103→  },
+   104→};
+   105→
+   106→const MODULES = ['AUTH', 'BOOKING', 'APPROVAL', 'FACILITY', 'USER_MGMT', 'SYSTEM', 'AI'] as const;
+   107→const SEVERITIES = ['INFO', 'WARNING', 'CRITICAL'] as const;
+   108→
+   109→// ===================== Helpers =====================
+   110→const fmtTimestamp = (iso: string, lang: 'bm' | 'en') => {
+   111→  try {
+   112→    const d = new Date(iso);
+   113→    return format(d, lang === 'bm' ? 'dd MMM yyyy, HH:mm:ss' : 'dd MMM yyyy, HH:mm:ss');
+   114→  } catch {
+   115→    return iso;
+   116→  }
+   117→};
+   118→
+   119→const fmtRelative = (iso: string, lang: 'bm' | 'en') => {
+   120→  const diff = Date.now() - new Date(iso).getTime();
+   121→  const mins = Math.floor(diff / 60_000);
+   122→  if (mins < 1) return lang === 'bm' ? 'baru saja' : 'just now';
+   123→  if (mins < 60) return lang === 'bm' ? `${mins} minit lalu` : `${mins}m ago`;
+   124→  const hrs = Math.floor(mins / 60);
+   125→  if (hrs < 24) return lang === 'bm' ? `${hrs} jam lalu` : `${hrs}h ago`;
+   126→  const days = Math.floor(hrs / 24);
+   127→  return lang === 'bm' ? `${days} hari lalu` : `${days}d ago`;
+   128→};
+   129→
+   130→const parseDetails = (raw: string | null): string | null => {
+   131→  if (!raw) return null;
+   132→  try {
+   133→    return JSON.stringify(JSON.parse(raw), null, 2);
+   134→  } catch {
+   135→    return raw;
+   136→  }
+   137→};
+   138→
+   139→const maskIp = (ip: string | null): string => {
+   140→  if (!ip) return '—';
+   141→  // Show first two octets for IPv4, mask the rest (PDPA-friendly preview)
+   142→  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) {
+   143→    const parts = ip.split('.');
+   144→    return `${parts[0]}.${parts[1]}.*.*`;
+   145→  }
+   146→  return ip;
+   147→};
+   148→
+   149→// ===================== Main View =====================
+   150→export function AuditView() {
+   151→  const { t, lang } = useT();
+   152→  const { user } = useCurrentUser();
+   153→  const tr = (bm: string, en: string) => (lang === 'bm' ? bm : en);
+   154→
+   155→  const [page, setPage] = useState(1);
+   156→  const [moduleFilter, setModuleFilter] = useState<string>('all');
+   157→  const [severityFilter, setSeverityFilter] = useState<string>('all');
+   158→  const [search, setSearch] = useState('');
+   159→  const [expandedId, setExpandedId] = useState<string | null>(null);
+   160→
+   161→  const pageSize = 50;
+   162→
+   163→  // ---- Main audit log fetch ----
+   164→  const { data, isLoading, isError } = useQuery<AuditResponse>({
+   165→    queryKey: ['audit', page, pageSize, moduleFilter, severityFilter],
+   166→    queryFn: async () => {
+   167→      const params = new URLSearchParams({
+   168→        page: String(page),
+   169→        pageSize: String(pageSize),
+   170→      });
+   171→      if (moduleFilter !== 'all') params.set('module', moduleFilter);
+   172→      if (severityFilter !== 'all') params.set('severity', severityFilter);
+   173→      const r = await fetch(`/api/audit?${params.toString()}`, { credentials: 'include' });
+   174→      if (!r.ok) throw new Error('failed');
+   175→      return (await r.json()) as AuditResponse;
+   176→    },
+   177→    enabled: !!user,
+   178→  });
+   179→
+   180→  // ---- Severity count fetches (parallel, small) ----
+   181→  const useSeverityCount = (sev: string) =>
+   182→    useQuery<number>({
+   183→      queryKey: ['audit-count', sev, moduleFilter],
+   184→      queryFn: async () => {
+   185→        const params = new URLSearchParams({ page: '1', pageSize: '1', severity: sev });
+   186→        if (moduleFilter !== 'all') params.set('module', moduleFilter);
+   187→        const r = await fetch(`/api/audit?${params.toString()}`, { credentials: 'include' });
+   188→        if (!r.ok) throw new Error('failed');
+   189→        const j = (await r.json()) as AuditResponse;
+   190→        return j.pagination.total;
+   191→      },
+   192→      enabled: !!user,
+   193→    });
+   194→
+   195→  const { data: infoCount } = useSeverityCount('INFO');
+   196→  const { data: warnCount } = useSeverityCount('WARNING');
+   197→  const { data: critCount } = useSeverityCount('CRITICAL');
+   198→
+   199→  // ---- Client-side search filter (action / user name/email) ----
+   200→  const filteredLogs = useMemo(() => {
+   201→    if (!data?.data) return [];
+   202→    const s = search.trim().toLowerCase();
+   203→    if (!s) return data.data;
+   204→    return data.data.filter(
+   205→      (l) =>
+   206→        l.action.toLowerCase().includes(s) ||
+   207→        (l.user?.name ?? '').toLowerCase().includes(s) ||
+   208→        (l.user?.email ?? '').toLowerCase().includes(s) ||
+   209→        (l.entity ?? '').toLowerCase().includes(s) ||
+   210→        (l.entityId ?? '').toLowerCase().includes(s),
+   211→    );
+   212→  }, [data, search]);
+   213→
+   214→  const pagination = data?.pagination;
+   215→  const totalPages = pagination?.totalPages ?? 1;
+   216→  const currentPage = pagination?.page ?? 1;
+   217→  const totalRecords = pagination?.total ?? 0;
+   218→
+   219→  const statTiles = useMemo(
+   220→    () => [
+   221→      {
+   222→        key: 'total',
+   223→        label: tr('Jumlah Log', 'Total Logs'),
+   224→        value: totalRecords,
+   225→        icon: ScrollText,
+   226→        gradient: 'from-teal-400 to-teal-600',
+   227→        glow: 'bg-teal-500/15',
+   228→      },
+   229→      {
+   230→        key: 'info',
+   231→        label: tr('Maklumat', 'Info'),
+   232→        value: infoCount ?? 0,
+   233→        icon: Info,
+   234→        gradient: 'from-teal-400 to-emerald-500',
+   235→        glow: 'bg-teal-500/15',
+   236→      },
+   237→      {
+   238→        key: 'warning',
+   239→        label: tr('Amaran', 'Warning'),
+   240→        value: warnCount ?? 0,
+   241→        icon: AlertTriangle,
+   242→        gradient: 'from-amber-400 to-orange-500',
+   243→        glow: 'bg-amber-500/15',
+   244→      },
+   245→      {
+   246→        key: 'critical',
+   247→        label: tr('Kritikal', 'Critical'),
+   248→        value: critCount ?? 0,
+   249→        icon: AlertCircle,
+   250→        gradient: 'from-rose-400 to-rose-600',
+   251→        glow: 'bg-rose-500/15',
+   252→      },
+   253→    ],
+   254→    [totalRecords, infoCount, warnCount, critCount, tr],
+   255→  );
+   256→
+   257→  const toggleExpand = (id: string) => {
+   258→    setExpandedId((prev) => (prev === id ? null : id));
+   259→  };
+   260→
+   261→  const resetFilters = () => {
+   262→    setModuleFilter('all');
+   263→    setSeverityFilter('all');
+   264→    setSearch('');
+   265→    setPage(1);
+   266→  };
+   267→
+   268→  // ===================== Render =====================
+   269→  return (
+   270→    <motion.div
+   271→      initial={{ opacity: 0, y: 10 }}
+   272→      animate={{ opacity: 1, y: 0 }}
+   273→      transition={{ duration: 0.3 }}
+   274→      className="space-y-4 lg:space-y-6"
+   275→    >
+   276→      {/* ===== Header ===== */}
+   277→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   278→        <div className="absolute top-0 right-0 w-72 h-72 rounded-full bg-rose-500/10 blur-3xl pointer-events-none" />
+   279→        <div className="absolute -bottom-16 -left-12 w-56 h-56 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   280→        <div className="relative z-10">
+   281→          <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   282→            <ShieldAlert className="w-3 h-3" />
+   283→            <span>{t('nav_audit')}</span>
+   284→          </div>
+   285→          <h2 className="text-xl lg:text-2xl font-bold gradient-text">
+   286→            {tr('Log Audit Sistem', 'System Audit Log')}
+   287→          </h2>
+   288→          <p className="text-sm text-muted-foreground mt-1 max-w-2xl">
+   289→            {tr(
+   290→              'Jejak semua aktiviti sistem — pengesahan, tempahan, kelulusan & perubahan pentadbir.',
+   291→              'Track all system activity — authentication, bookings, approvals & admin changes.',
+   292→            )}
+   293→          </p>
+   294→        </div>
+   295→      </GlassCard>
+   296→
+   297→      {/* ===== Stats Row ===== */}
+   298→      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
+   299→        {statTiles.map((tile) => {
+   300→          const Icon = tile.icon;
+   301→          return (
+   302→            <GlassCard key={tile.key} className="p-5 relative overflow-hidden">
+   303→              <div className={cn('absolute -right-4 -top-4 w-20 h-20 rounded-full blur-2xl', tile.glow)} />
+   304→              <div className="relative z-10 flex items-center gap-3">
+   305→                <div
+   306→                  className={cn(
+   307→                    'w-11 h-11 rounded-xl bg-gradient-to-br flex items-center justify-center shadow-lg shrink-0',
+   308→                    tile.gradient,
+   309→                  )}
+   310→                >
+   311→                  <Icon className="w-5 h-5 text-white" />
+   312→                </div>
+   313→                <div className="min-w-0">
+   314→                  <div className="text-2xl lg:text-3xl font-bold tracking-tight">{tile.value}</div>
+   315→                  <div className="text-xs text-muted-foreground truncate">{tile.label}</div>
+   316→                </div>
+   317→              </div>
+   318→            </GlassCard>
+   319→          );
+   320→        })}
+   321→      </div>
+   322→
+   323→      {/* ===== Filters + Table ===== */}
+   324→      <GlassCard className="p-4 lg:p-5">
+   325→        {/* Filter bar */}
+   326→        <div className="flex flex-col lg:flex-row lg:items-center gap-3 mb-4">
+   327→          <div className="flex items-center gap-2 text-sm font-semibold shrink-0">
+   328→            <Cpu className="w-4 h-4 text-teal-600" />
+   329→            {tr('Tapis Log', 'Filter Logs')}
+   330→          </div>
+   331→
+   332→          <div className="grid grid-cols-1 sm:grid-cols-2 lg:flex lg:items-center gap-2 flex-1">
+   333→            {/* Module select */}
+   334→            <Select value={moduleFilter} onValueChange={(v) => { setModuleFilter(v); setPage(1); }}>
+   335→              <SelectTrigger className="h-9 w-full lg:w-[180px] text-xs">
+   336→                <SelectValue placeholder={tr('Modul', 'Module')} />
+   337→              </SelectTrigger>
+   338→              <SelectContent>
+   339→                <SelectItem value="all">{tr('Semua Modul', 'All Modules')}</SelectItem>
+   340→                {MODULES.map((m) => (
+   341→                  <SelectItem key={m} value={m}>{m}</SelectItem>
+   342→                ))}
+   343→              </SelectContent>
+   344→            </Select>
+   345→
+   346→            {/* Severity select */}
+   347→            <Select value={severityFilter} onValueChange={(v) => { setSeverityFilter(v); setPage(1); }}>
+   348→              <SelectTrigger className="h-9 w-full lg:w-[160px] text-xs">
+   349→                <SelectValue placeholder={tr('Keterukan', 'Severity')} />
+   350→              </SelectTrigger>
+   351→              <SelectContent>
+   352→                <SelectItem value="all">{tr('Semua Keterukan', 'All Severities')}</SelectItem>
+   353→                {SEVERITIES.map((s) => (
+   354→                  <SelectItem key={s} value={s}>{s}</SelectItem>
+   355→                ))}
+   356→              </SelectContent>
+   357→            </Select>
+   358→
+   359→            {/* Search */}
+   360→            <div className="relative flex-1 min-w-0">
+   361→              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+   362→              <Input
+   363→                value={search}
+   364→                onChange={(e) => setSearch(e.target.value)}
+   365→                placeholder={tr('Cari tindakan / pengguna / entiti...', 'Search action / user / entity...')}
+   366→                className="h-9 pl-9 text-xs"
+   367→              />
+   368→            </div>
+   369→
+   370→            {(moduleFilter !== 'all' || severityFilter !== 'all' || search) && (
+   371→              <Button variant="ghost" size="sm" onClick={resetFilters} className="h-9 text-xs shrink-0">
+   372→                {tr('Reset', 'Reset')}
+   373→              </Button>
+   374→            )}
+   375→          </div>
+   376→        </div>
+   377→
+   378→        {/* Result count */}
+   379→        <div className="flex items-center justify-between text-xs text-muted-foreground mb-3">
+   380→          <span>
+   381→            {isLoading
+   382→              ? t('loading')
+   383→              : tr(
+   384→                  `${filteredLogs.length} rekod dipaparkan daripada ${totalRecords} jumlah`,
+   385→                  `${filteredLogs.length} records shown of ${totalRecords} total`,
+   386→                )}
+   387→          </span>
+   388→          <span className="hidden sm:inline">
+   389→            {tr('Halaman', 'Page')} {currentPage} / {Math.max(totalPages, 1)}
+   390→          </span>
+   391→        </div>
+   392→
+   393→        {/* Error state */}
+   394→        {isError && (
+   395→          <Alert className="border-rose-300/60 bg-rose-50/70 text-rose-800 mb-4">
+   396→            <AlertCircle className="w-4 h-4" />
+   397→            <AlertDescription>
+   398→              {tr(
+   399→                'Anda tidak mempunyai kebenaran atau log tidak dapat dimuatkan.',
+   400→                'You do not have permission or logs could not be loaded.',
+   401→              )}
+   402→            </AlertDescription>
+   403→          </Alert>
+   404→        )}
+   405→
+   406→        {/* Table header (desktop only) */}
+   407→        <div className="hidden lg:grid grid-cols-[150px_180px_120px_1fr_140px_110px_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60">
+   408→          <div>{tr('Waktu', 'Timestamp')}</div>
+   409→          <div>{tr('Pengguna', 'User')}</div>
+   410→          <div>{tr('Modul', 'Module')}</div>
+   411→          <div>{tr('Tindakan', 'Action')}</div>
+   412→          <div>{tr('Entiti', 'Entity')}</div>
+   413→          <div>IP</div>
+   414→          <div></div>
+   415→        </div>
+   416→
+   417→        {/* List */}
+   418→        <div className="mt-2 space-y-1.5">
+   419→          {isLoading
+   420→            ? Array.from({ length: 8 }).map((_, i) => (
+   421→                <div key={i} className="px-3 py-3 rounded-lg border border-border/40">
+   422→                  <Skeleton className="h-4 w-full mb-2" />
+   423→                  <Skeleton className="h-3 w-2/3" />
+   424→                </div>
+   425→              ))
+   426→            : filteredLogs.length === 0
+   427→            ? <EmptyState tr={tr} />
+   428→            : filteredLogs.map((log) => (
+   429→              <AuditRow
+   430→                key={log.id}
+   431→                log={log}
+   432→                lang={lang}
+   433→                expanded={expandedId === log.id}
+   434→                onToggle={() => toggleExpand(log.id)}
+   435→                tr={tr}
+   436→              />
+   437→            ))}
+   438→        </div>
+   439→
+   440→        {/* Pagination */}
+   441→        {!isLoading && filteredLogs.length > 0 && (
+   442→          <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-border/60">
+   443→            <Button
+   444→              variant="outline"
+   445→              size="sm"
+   446→              onClick={() => setPage((p) => Math.max(1, p - 1))}
+   447→              disabled={currentPage <= 1}
+   448→              className="h-8"
+   449→            >
+   450→              <ChevronLeft className="w-4 h-4" />
+   451→              {tr('Sebelum', 'Prev')}
+   452→            </Button>
+   453→
+   454→            <span className="text-xs text-muted-foreground">
+   455→              {tr('Halaman', 'Page')} <span className="font-semibold text-foreground">{currentPage}</span> {tr('daripada', 'of')} <span className="font-semibold text-foreground">{Math.max(totalPages, 1)}</span>
+   456→            </span>
+   457→
+   458→            <Button
+   459→              variant="outline"
+   460→              size="sm"
+   461→              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+   462→              disabled={currentPage >= totalPages}
+   463→              className="h-8"
+   464→            >
+   465→              {tr('Seterus', 'Next')}
+   466→              <ChevronRight className="w-4 h-4" />
+   467→            </Button>
+   468→          </div>
+   469→        )}
+   470→      </GlassCard>
+   471→    </motion.div>
+   472→  );
+   473→}
+   474→
+   475→// ===================== Audit Row =====================
+   476→function AuditRow({
+   477→  log,
+   478→  lang,
+   479→  expanded,
+   480→  onToggle,
+   481→  tr,
+   482→}: {
+   483→  log: AuditLog;
+   484→  lang: 'bm' | 'en';
+   485→  expanded: boolean;
+   486→  onToggle: () => void;
+   487→  tr: (bm: string, en: string) => string;
+   488→}) {
+   489→  const sevCfg = SEVERITY_CONFIG[log.severity] ?? SEVERITY_CONFIG.INFO;
+   490→  const SevIcon = sevCfg.icon;
+   491→  const moduleCls = MODULE_COLORS[log.module] ?? 'text-zinc-600 bg-zinc-100/70 border-zinc-300/60';
+   492→  const prettyDetails = useMemo(() => parseDetails(log.details), [log.details]);
+   493→
+   494→  return (
+   495→    <div
+   496→      className={cn(
+   497→        'rounded-lg border transition-all',
+   498→        expanded
+   499→          ? 'border-teal-300/60 bg-teal-50/30 shadow-sm'
+   500→          : 'border-border/40 hover:border-teal-200/60 hover:bg-muted/30',
+   501→      )}
+   502→    >
+   503→      {/* Clickable row */}
+   504→      <button
+   505→        type="button"
+   506→        onClick={onToggle}
+   507→        aria-expanded={expanded}
+   508→        className="w-full text-left px-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 rounded-lg"
+   509→      >
+   510→        {/* Desktop grid layout */}
+   511→        <div className="hidden lg:grid grid-cols-[150px_180px_120px_1fr_140px_110px_40px] gap-3 items-center">
+   512→          {/* Timestamp */}
+   513→          <div className="min-w-0">
+   514→            <div className="text-xs font-mono text-foreground truncate">{fmtTimestamp(log.createdAt, lang)}</div>
+   515→            <div className="text-[10px] text-muted-foreground">{fmtRelative(log.createdAt, lang)}</div>
+   516→          </div>
+   517→
+   518→          {/* User */}
+   519→          <div className="min-w-0 flex items-center gap-1.5">
+   520→            {log.user ? (
+   521→              <>
+   522→                <div className="w-6 h-6 rounded-full bg-gradient-to-br from-teal-400 to-emerald-500 flex items-center justify-center shrink-0">
+   523→                  <User className="w-3 h-3 text-white" />
+   524→                </div>
+   525→                <div className="min-w-0">
+   526→                  <div className="text-xs font-medium truncate">{log.user.name}</div>
+   527→                  <div className="text-[10px] text-muted-foreground truncate">{log.user.email}</div>
+   528→                </div>
+   529→              </>
+   530→            ) : (
+   531→              <div className="flex items-center gap-1.5">
+   532→                <div className="w-6 h-6 rounded-full bg-zinc-200 flex items-center justify-center shrink-0">
+   533→                  <Cpu className="w-3 h-3 text-zinc-500" />
+   534→                </div>
+   535→                <span className="text-xs text-muted-foreground italic">{tr('Sistem', 'System')}</span>
+   536→              </div>
+   537→            )}
+   538→          </div>
+   539→
+   540→          {/* Module badge */}
+   541→          <div>
+   542→            <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border', moduleCls)}>
+   543→              {log.module}
+   544→            </span>
+   545→          </div>
+   546→
+   547→          {/* Action + severity */}
+   548→          <div className="min-w-0 flex items-center gap-2">
+   549→            <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0', sevCfg.cls)}>
+   550→              <SevIcon className="w-2.5 h-2.5" />
+   551→            </span>
+   552→            <span className="text-xs font-medium truncate font-mono">{log.action}</span>
+   553→          </div>
+   554→
+   555→          {/* Entity */}
+   556→          <div className="min-w-0 text-xs">
+   557→            {log.entity ? (
+   558→              <div className="flex items-center gap-1 min-w-0">
+   559→                <span className="text-muted-foreground truncate">{log.entity}</span>
+   560→                {log.entityId && (
+   561→                  <span className="font-mono text-[10px] text-muted-foreground/70 truncate">#{log.entityId.slice(0, 8)}</span>
+   562→                )}
+   563→              </div>
+   564→            ) : (
+   565→              <span className="text-muted-foreground/50">—</span>
+   566→            )}
+   567→          </div>
+   568→
+   569→          {/* IP */}
+   570→          <div className="text-[11px] font-mono text-muted-foreground truncate">{maskIp(log.ipAddress)}</div>
+   571→
+   572→          {/* Chevron */}
+   573→          <div className="flex justify-end">
+   574→            {expanded ? (
+   575→              <ChevronUp className="w-4 h-4 text-muted-foreground" />
+   576→            ) : (
+   577→              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+   578→            )}
+   579→          </div>
+   580→        </div>
+   581→
+   582→        {/* Mobile stacked layout */}
+   583→        <div className="lg:hidden space-y-2">
+   584→          <div className="flex items-center justify-between gap-2">
+   585→            <div className="flex items-center gap-1.5 flex-wrap">
+   586→              <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border', moduleCls)}>
+   587→                {log.module}
+   588→              </span>
+   589→              <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border', sevCfg.cls)}>
+   590→                <SevIcon className="w-2.5 h-2.5" />
+   591→                {log.severity}
+   592→              </span>
+   593→            </div>
+   594→            <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+   595→              {fmtRelative(log.createdAt, lang)}
+   596→              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+   597→            </div>
+   598→          </div>
+   599→
+   600→          <div className="text-xs font-mono font-medium break-all">{log.action}</div>
+   601→
+   602→          <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+   603→            <div className="flex items-center gap-1.5 min-w-0">
+   604→              {log.user ? (
+   605→                <>
+   606→                  <User className="w-3 h-3 shrink-0" />
+   607→                  <span className="truncate">{log.user.name}</span>
+   608→                </>
+   609→              ) : (
+   610→                <>
+   611→                  <Cpu className="w-3 h-3 shrink-0" />
+   612→                  <span className="italic">{tr('Sistem', 'System')}</span>
+   613→                </>
+   614→              )}
+   615→            </div>
+   616→            <span className="font-mono">{maskIp(log.ipAddress)}</span>
+   617→          </div>
+   618→
+   619→          <div className="text-[10px] text-muted-foreground font-mono">
+   620→            {fmtTimestamp(log.createdAt, lang)}
+   621→          </div>
+   622→        </div>
+   623→      </button>
+   624→
+   625→      {/* Expanded details */}
+   626→      <AnimatePresence initial={false}>
+   627→        {expanded && (
+   628→          <motion.div
+   629→            initial={{ height: 0, opacity: 0 }}
+   630→            animate={{ height: 'auto', opacity: 1 }}
+   631→            exit={{ height: 0, opacity: 0 }}
+   632→            transition={{ duration: 0.2 }}
+   633→            className="overflow-hidden"
+   634→          >
+   635→            <div className="px-3 pb-3 pt-1 border-t border-border/40 mt-1 space-y-3">
+   636→              {/* Meta grid */}
+   637→              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-3">
+   638→                <DetailField
+   639→                  icon={User}
+   640→                  label={tr('Pengguna', 'User')}
+   641→                  value={
+   642→                    log.user
+   643→                      ? `${log.user.name}\n${log.user.email}\n${log.user.role}`
+   644→                      : tr('Sistem (tiada pengguna)', 'System (no user)')
+   645→                  }
+   646→                />
+   647→                <DetailField
+   648→                  icon={Activity}
+   649→                  label={tr('Tindakan', 'Action')}
+   650→                  value={log.action}
+   651→                  mono
+   652→                />
+   653→                <DetailField
+   654→                  icon={FileText}
+   655→                  label={tr('Entiti', 'Entity')}
+   656→                  value={
+   657→                    log.entity
+   658→                      ? `${log.entity}${log.entityId ? ` #${log.entityId}` : ''}`
+   659→                      : '—'
+   660→                  }
+   661→                  mono
+   662→                />
+   663→                <DetailField
+   664→                  icon={Globe}
+   665→                  label={tr('Alamat IP', 'IP Address')}
+   666→                  value={log.ipAddress ?? '—'}
+   667→                  mono
+   668→                />
+   669→              </div>
+   670→
+   671→              {/* User agent */}
+   672→              {log.userAgent && (
+   673→                <div className="rounded-lg bg-muted/40 border border-border/40 p-3">
+   674→                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+   675→                    <Globe className="w-3 h-3" />
+   676→                    {tr('User Agent', 'User Agent')}
+   677→                  </div>
+   678→                  <p className="text-[11px] font-mono text-muted-foreground break-all">{log.userAgent}</p>
+   679→                </div>
+   680→              )}
+   681→
+   682→              {/* Pretty-printed details */}
+   683→              {prettyDetails && (
+   684→                <div className="rounded-lg bg-zinc-900/95 border border-zinc-700/50 p-3 overflow-x-auto">
+   685→                  <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-teal-300 font-semibold mb-2">
+   686→                    <FileText className="w-3 h-3" />
+   687→                    {tr('Butiran (JSON)', 'Details (JSON)')}
+   688→                  </div>
+   689→                  <pre className="text-[11px] font-mono text-zinc-100 whitespace-pre-wrap break-all leading-relaxed">
+   690→                    {prettyDetails}
+   691→                  </pre>
+   692→                </div>
+   693→              )}
+   694→
+   695→              {!prettyDetails && !log.userAgent && (
+   696→                <p className="text-xs text-muted-foreground italic text-center py-2">
+   697→                  {tr('Tiada butiran tambahan.', 'No additional details.')}
+   698→                </p>
+   699→              )}
+   700→            </div>
+   701→          </motion.div>
+   702→        )}
+   703→      </AnimatePresence>
+   704→    </div>
+   705→  );
+   706→}
+   707→
+   708→// ===================== Detail Field =====================
+   709→function DetailField({
+   710→  icon: Icon,
+   711→  label,
+   712→  value,
+   713→  mono,
+   714→}: {
+   715→  icon: typeof User;
+   716→  label: string;
+   717→  value: string;
+   718→  mono?: boolean;
+   719→}) {
+   720→  return (
+   721→    <div className="min-w-0">
+   722→      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
+   723→        <Icon className="w-3 h-3" />
+   724→        {label}
+   725→      </div>
+   726→      <p className={cn('text-xs text-foreground whitespace-pre-wrap break-all', mono && 'font-mono')}>
+   727→        {value}
+   728→      </p>
+   729→    </div>
+   730→  );
+   731→}
+   732→
+   733→// ===================== Empty State =====================
+   734→function EmptyState({ tr }: { tr: (bm: string, en: string) => string }) {
+   735→  return (
+   736→    <div className="flex flex-col items-center justify-center py-12 text-center">
+   737→      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-teal-100 to-emerald-100 flex items-center justify-center mb-3">
+   738→        <ScrollText className="w-7 h-7 text-teal-600" />
+   739→      </div>
+   740→      <p className="text-sm font-medium text-foreground">
+   741→        {tr('Tiada log audit dijumpai', 'No audit logs found')}
+   742→      </p>
+   743→      <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+   744→        {tr(
+   745→          'Cuba ubah penapis atau gelintar untuk mencari log yang dikehendaki.',
+   746→          'Try adjusting filters or search to find the logs you need.',
+   747→        )}
+   748→      </p>
+   749→    </div>
+   750→  );
+   751→}
+   752→

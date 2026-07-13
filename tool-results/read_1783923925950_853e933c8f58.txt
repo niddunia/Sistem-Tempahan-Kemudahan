@@ -1,0 +1,931 @@
+     1→'use client';
+     2→
+     3→import { useState, useEffect, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useApp } from '@/lib/store';
+     6→import { GlassCard } from '@/components/glass-card';
+     7→import { Button } from '@/components/ui/button';
+     8→import { Input } from '@/components/ui/input';
+     9→import { Label } from '@/components/ui/label';
+    10→import { Textarea } from '@/components/ui/textarea';
+    11→import {
+    12→  Select,
+    13→  SelectContent,
+    14→  SelectItem,
+    15→  SelectTrigger,
+    16→  SelectValue,
+    17→} from '@/components/ui/select';
+    18→import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+    19→import { Calendar } from '@/components/ui/calendar';
+    20→import { motion } from 'framer-motion';
+    21→import {
+    22→  Loader2,
+    23→  Building2,
+    24→  CalendarDays,
+    25→  Clock,
+    26→  Users,
+    27→  FileText,
+    28→  Tag,
+    29→  Wrench,
+    30→  StickyNote,
+    31→  AlertTriangle,
+    32→  AlertCircle,
+    33→  Sparkles,
+    34→  Save,
+    35→  Send,
+    36→  X,
+    37→  Lightbulb,
+    38→  MapPin,
+    39→  Monitor,
+    40→  GraduationCap,
+    41→} from 'lucide-react';
+    42→import { useQuery } from '@tanstack/react-query';
+    43→import { toast } from 'sonner';
+    44→import { cn } from '@/lib/utils';
+    45→
+    46→/* ============================================================
+    47→   BookingFormView — FR-01 Permohonan Tempahan
+    48→   Sistem e-Tempahan PLTT-JTM
+    49→   - Glassmorphism, teal/emerald/amber palette
+    50→   - Bilingual (BM/BI) via useT()
+    51→   - Real-time conflict check + capacity warning
+    52→   - Save-as-draft + official submit
+    53→   ============================================================ */
+    54→
+    55→interface Facility {
+    56→  id: string;
+    57→  name: string;
+    58→  category: 'COMPUTER_ROOM' | 'LECTURE_HALL' | string;
+    59→  capacity: number;
+    60→  location?: string | null;
+    61→  equipment?: string | null;
+    62→  operatingStart: string;
+    63→  operatingEnd: string;
+    64→  colorCode: string;
+    65→  status: string;
+    66→}
+    67→
+    68→interface ConflictAlternative {
+    69→  startTime: string;
+    70→  endTime: string;
+    71→  facilityId: string;
+    72→  facilityName: string;
+    73→}
+    74→
+    75→interface ConflictResult {
+    76→  hasConflict: boolean;
+    77→  conflictingBookings: Array<{
+    78→    id: string;
+    79→    bookingRef: string;
+    80→    startTime: string;
+    81→    endTime: string;
+    82→    status: string;
+    83→    programName: string | null;
+    84→  }>;
+    85→  alternatives: ConflictAlternative[];
+    86→}
+    87→
+    88→type CategoryFilter = 'all' | 'COMPUTER_ROOM' | 'LECTURE_HALL';
+    89→
+    90→export function BookingFormView() {
+    91→  const { t, lang } = useT();
+    92→  const { bookingPrefill, setBookingPrefill, setView } = useApp();
+    93→
+    94→  /* ---------------- form state ---------------- */
+    95→  const [category, setCategory] = useState<CategoryFilter>('all');
+    96→  const [facilityId, setFacilityId] = useState('');
+    97→  const [date, setDate] = useState<Date | undefined>();
+    98→  const [startTime, setStartTime] = useState('');
+    99→  const [endTime, setEndTime] = useState('');
+   100→  const [purpose, setPurpose] = useState('');
+   101→  const [programName, setProgramName] = useState('');
+   102→  const [participantCount, setParticipantCount] = useState('');
+   103→  const [equipmentNeeded, setEquipmentNeeded] = useState('');
+   104→  const [notes, setNotes] = useState('');
+   105→
+   106→  const [submitting, setSubmitting] = useState(false);
+   107→  const [savingDraft, setSavingDraft] = useState(false);
+   108→  const [checkingConflict, setCheckingConflict] = useState(false);
+   109→  const [conflictResult, setConflictResult] = useState<ConflictResult | null>(null);
+   110→  const [validated, setValidated] = useState(false);
+   111→  const [prefillApplied, setPrefillApplied] = useState(false);
+   112→
+   113→  /* ---------------- fetch facilities ---------------- */
+   114→  const { data: facilities, isLoading: loadingFacilities } = useQuery<Facility[]>({
+   115→    queryKey: ['facilities'],
+   116→    queryFn: async () => {
+   117→      const r = await fetch('/api/facilities');
+   118→      const j = await r.json();
+   119→      return j.data as Facility[];
+   120→    },
+   121→  });
+   122→
+   123→  const filteredFacilities = useMemo(() => {
+   124→    if (!facilities) return [];
+   125→    if (category === 'all') return facilities;
+   126→    return facilities.filter((f) => f.category === category);
+   127→  }, [facilities, category]);
+   128→
+   129→  const selectedFacility = useMemo(
+   130→    () => facilities?.find((f) => f.id === facilityId) ?? null,
+   131→    [facilities, facilityId],
+   132→  );
+   133→
+   134→  /* ---------------- pre-fill from AI parse ---------------- */
+   135→  useEffect(() => {
+   136→    if (prefillApplied || !bookingPrefill) return;
+   137→    const p = bookingPrefill;
+   138→    if (typeof p.facilityId === 'string' && p.facilityId) {
+   139→      setFacilityId(p.facilityId);
+   140→      const f = facilities?.find((x) => x.id === p.facilityId);
+   141→      if (f) setCategory(f.category as CategoryFilter);
+   142→    }
+   143→    if (typeof p.date === 'string' && p.date) {
+   144→      const d = new Date(p.date);
+   145→      if (!isNaN(d.getTime())) {
+   146→        d.setHours(0, 0, 0, 0);
+   147→        setDate(d);
+   148→      }
+   149→    }
+   150→    if (typeof p.startTime === 'string' && p.startTime) setStartTime(p.startTime);
+   151→    if (typeof p.endTime === 'string' && p.endTime) setEndTime(p.endTime);
+   152→    if (typeof p.participants === 'number' && p.participants > 0) {
+   153→      setParticipantCount(String(p.participants));
+   154→    }
+   155→    if (typeof p.purpose === 'string' && p.purpose) setPurpose(p.purpose);
+   156→    setPrefillApplied(true);
+   157→    setBookingPrefill(null);
+   158→    toast.info(
+   159→      lang === 'bm'
+   160→        ? 'Borang diisi automatik dari AI'
+   161→        : 'Form auto-filled from AI',
+   162→    );
+   163→  }, [bookingPrefill, facilities, prefillApplied, setBookingPrefill, lang]);
+   164→
+   165→  /* ---------------- time options ---------------- */
+   166→  const timeOptions = useMemo(() => {
+   167→    const start = selectedFacility?.operatingStart ?? '08:00';
+   168→    const end = selectedFacility?.operatingEnd ?? '22:00';
+   169→    const startMin = parseInt(start.slice(0, 2), 10) * 60 + parseInt(start.slice(3, 5), 10);
+   170→    const endMin = parseInt(end.slice(0, 2), 10) * 60 + parseInt(end.slice(3, 5), 10);
+   171→    const opts: { value: string; label: string }[] = [];
+   172→    for (let m = startMin; m < endMin; m += 30) {
+   173→      const h = Math.floor(m / 60).toString().padStart(2, '0');
+   174→      const min = (m % 60).toString().padStart(2, '0');
+   175→      opts.push({ value: `${h}:${min}`, label: `${h}:${min}` });
+   176→    }
+   177→    return opts;
+   178→  }, [selectedFacility]);
+   179→
+   180→  /* ---------------- derived: capacity + time validity ---------------- */
+   181→  const participants = parseInt(participantCount, 10);
+   182→  const capacityExceeded =
+   183→    !!selectedFacility && !isNaN(participants) && participants > selectedFacility.capacity;
+   184→  const invalidTime = !!startTime && !!endTime && startTime >= endTime;
+   185→
+   186→  /* ---------------- real-time conflict check (debounced) ---------------- */
+   187→  useEffect(() => {
+   188→    if (!facilityId || !date || !startTime || !endTime || invalidTime) {
+   189→      setConflictResult(null);
+   190→      setCheckingConflict(false);
+   191→      return;
+   192→    }
+   193→    let cancelled = false;
+   194→    setCheckingConflict(true);
+   195→    const iso = new Date(date);
+   196→    iso.setHours(0, 0, 0, 0);
+   197→    const timer = setTimeout(async () => {
+   198→      try {
+   199→        const r = await fetch('/api/bookings/check-conflict', {
+   200→          method: 'POST',
+   201→          headers: { 'Content-Type': 'application/json' },
+   202→          body: JSON.stringify({
+   203→            facilityId,
+   204→            eventDate: iso.toISOString(),
+   205→            startTime,
+   206→            endTime,
+   207→          }),
+   208→        });
+   209→        const j = await r.json();
+   210→        if (!cancelled && j?.data) setConflictResult(j.data as ConflictResult);
+   211→      } catch {
+   212→        /* network error — silent */
+   213→      } finally {
+   214→        if (!cancelled) setCheckingConflict(false);
+   215→      }
+   216→    }, 450);
+   217→    return () => {
+   218→      cancelled = true;
+   219→      clearTimeout(timer);
+   220→    };
+   221→  }, [facilityId, date, startTime, endTime, invalidTime]);
+   222→
+   223→  /* ---------------- validation ---------------- */
+   224→  const errors = useMemo<Record<string, string>>(() => {
+   225→    const e: Record<string, string> = {};
+   226→    if (!facilityId) e.facilityId = lang === 'bm' ? 'Sila pilih kemudahan' : 'Please select a facility';
+   227→    if (!date) e.date = lang === 'bm' ? 'Sila pilih tarikh' : 'Please select a date';
+   228→    if (!startTime) e.startTime = lang === 'bm' ? 'Sila pilih masa mula' : 'Please select start time';
+   229→    if (!endTime) e.endTime = lang === 'bm' ? 'Sila pilih masa tamat' : 'Please select end time';
+   230→    if (invalidTime) e.time = lang === 'bm' ? 'Masa tamat mesti selepas masa mula' : 'End time must be after start time';
+   231→    if (!purpose.trim() || purpose.trim().length < 3)
+   232→      e.purpose = lang === 'bm' ? 'Tujuan diperlukan (minimum 3 aksara)' : 'Purpose required (min 3 chars)';
+   233→    if (!participantCount || isNaN(participants) || participants < 1)
+   234→      e.participants = lang === 'bm' ? 'Bilangan peserta diperlukan' : 'Participant count required';
+   235→    return e;
+   236→  }, [facilityId, date, startTime, endTime, purpose, participantCount, participants, invalidTime, lang]);
+   237→
+   238→  const hasErrors = Object.keys(errors).length > 0;
+   239→  const showErrors = validated;
+   240→  const hasConflict = !!conflictResult?.hasConflict;
+   241→  const canSubmit = !hasErrors && !capacityExceeded && !hasConflict && !checkingConflict;
+   242→
+   243→  /* ---------------- alternative slot click ---------------- */
+   244→  const applyAlternative = (alt: ConflictAlternative) => {
+   245→    setStartTime(alt.startTime);
+   246→    setEndTime(alt.endTime);
+   247→    toast.success(
+   248→      lang === 'bm'
+   249→        ? `Slot alternatif dipilih: ${alt.startTime} – ${alt.endTime}`
+   250→        : `Alternative slot applied: ${alt.startTime} – ${alt.endTime}`,
+   251→    );
+   252→  };
+   253→
+   254→  /* ---------------- build payload helper ---------------- */
+   255→  const buildPayload = (asDraft: boolean) => {
+   256→    const iso = date ? new Date(date) : new Date();
+   257→    iso.setHours(0, 0, 0, 0);
+   258→    return {
+   259→      facilityId,
+   260→      eventDate: iso.toISOString(),
+   261→      startTime: startTime || (selectedFacility?.operatingStart ?? '08:00'),
+   262→      endTime: endTime || (selectedFacility?.operatingStart ?? '10:00'),
+   263→      purpose: purpose.trim() || (lang === 'bm' ? 'Draf Permohonan' : 'Draft Booking'),
+   264→      programName: programName.trim() || undefined,
+   265→      participantCount: !isNaN(participants) && participants > 0 ? participants : 1,
+   266→      equipmentNeeded: equipmentNeeded.trim() || undefined,
+   267→      notes: notes.trim() || undefined,
+   268→      isDraft: asDraft,
+   269→    };
+   270→  };
+   271→
+   272→  /* ---------------- submit handler ---------------- */
+   273→  const handleSubmit = async (asDraft: boolean) => {
+   274→    setValidated(true);
+   275→    if (hasErrors) {
+   276→      toast.error(lang === 'bm' ? 'Sila lengkapkan borang' : 'Please complete the form');
+   277→      return;
+   278→    }
+   279→    if (asDraft) {
+   280→      setSavingDraft(true);
+   281→    } else {
+   282→      if (capacityExceeded) {
+   283→        toast.error(t('form_capacity_warn'));
+   284→        return;
+   285→      }
+   286→      setSubmitting(true);
+   287→      // Real-time conflict re-check before submission
+   288→      try {
+   289→        const iso = new Date(date!);
+   290→        iso.setHours(0, 0, 0, 0);
+   291→        const checkR = await fetch('/api/bookings/check-conflict', {
+   292→          method: 'POST',
+   293→          headers: { 'Content-Type': 'application/json' },
+   294→          body: JSON.stringify({
+   295→            facilityId,
+   296→            eventDate: iso.toISOString(),
+   297→            startTime,
+   298→            endTime,
+   299→          }),
+   300→        });
+   301→        const checkJ = await checkR.json();
+   302→        if (checkJ?.data?.hasConflict) {
+   303→          setConflictResult(checkJ.data as ConflictResult);
+   304→          toast.error(t('form_conflict_warn'));
+   305→          setSubmitting(false);
+   306→          return;
+   307→        }
+   308→      } catch {
+   309→        toast.error(lang === 'bm' ? 'Ralat semakan konflik' : 'Conflict check error');
+   310→        setSubmitting(false);
+   311→        return;
+   312→      }
+   313→    }
+   314→
+   315→    try {
+   316→      const payload = buildPayload(asDraft);
+   317→      const r = await fetch('/api/bookings', {
+   318→        method: 'POST',
+   319→        headers: { 'Content-Type': 'application/json' },
+   320→        body: JSON.stringify(payload),
+   321→      });
+   322→      if (!r.ok) {
+   323→        const j = await r.json().catch(() => null);
+   324→        const msg = j?.message ?? (lang === 'bm' ? 'Permohonan gagal dihantar' : 'Submission failed');
+   325→        toast.error(msg);
+   326→        return;
+   327→      }
+   328→      if (asDraft) {
+   329→        toast.info(lang === 'bm' ? 'Draf berjaya disimpan.' : 'Draft saved successfully.');
+   330→      } else {
+   331→        toast.success(t('form_success'));
+   332→      }
+   333→      setView('dashboard');
+   334→    } catch {
+   335→      toast.error(lang === 'bm' ? 'Ralat rangkaian. Cuba lagi.' : 'Network error. Try again.');
+   336→    } finally {
+   337→      setSubmitting(false);
+   338→      setSavingDraft(false);
+   339→    }
+   340→  };
+   341→
+   342→  /* ---------------- helpers ---------------- */
+   343→  const equipmentList = useMemo(() => {
+   344→    if (!selectedFacility?.equipment) return [];
+   345→    try {
+   346→      const parsed = JSON.parse(selectedFacility.equipment);
+   347→      return Array.isArray(parsed) ? parsed : [];
+   348→    } catch {
+   349→      return selectedFacility.equipment
+   350→        .split(/[,;]/)
+   351→        .map((s) => s.trim())
+   352→        .filter(Boolean);
+   353→    }
+   354→  }, [selectedFacility]);
+   355→
+   356→  const locale = lang === 'bm' ? 'ms-MY' : 'en-GB';
+   357→  const today = new Date();
+   358→  today.setHours(0, 0, 0, 0);
+   359→
+   360→  const hasAlternatives = hasConflict && (conflictResult?.alternatives?.length ?? 0) > 0;
+   361→
+   362→  /* ---------------- render ---------------- */
+   363→  return (
+   364→    <motion.div
+   365→      initial={{ opacity: 0, y: 10 }}
+   366→      animate={{ opacity: 1, y: 0 }}
+   367→      transition={{ duration: 0.3 }}
+   368→      className="space-y-4"
+   369→    >
+   370→      {/* ===== HERO ===== */}
+   371→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   372→        <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   373→        <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+   374→        <div className="relative z-10">
+   375→          <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   376→            <Sparkles className="w-3 h-3 text-teal-500" />
+   377→            <span>{lang === 'bm' ? 'Borang Permohonan' : 'Booking Application'}</span>
+   378→          </div>
+   379→          <h2 className="text-xl lg:text-2xl font-bold gradient-text mb-1">
+   380→            {t('nav_book')}
+   381→          </h2>
+   382→          <p className="text-sm text-muted-foreground max-w-2xl">
+   383→            {lang === 'bm'
+   384→              ? 'Isi borang di bawah untuk memohon tempahan kemudahan. Semakan konflik & kapasiti dibuat secara automatik.'
+   385→              : 'Complete the form below to apply for a facility booking. Conflict and capacity checks run automatically.'}
+   386→          </p>
+   387→        </div>
+   388→      </GlassCard>
+   389→
+   390→      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+   391→        {/* ===== MAIN FORM (2 cols) ===== */}
+   392→        <GlassCard className="lg:col-span-2 p-5 lg:p-6 space-y-5">
+   393→          {/* Category + Facility */}
+   394→          <div className="space-y-4">
+   395→            <div className="space-y-2">
+   396→              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   397→                <Tag className="w-3 h-3 text-teal-500" />
+   398→                {lang === 'bm' ? 'Jenis Kemudahan' : 'Facility Type'}
+   399→              </Label>
+   400→              <div className="grid grid-cols-3 gap-2">
+   401→                <CategoryChip
+   402→                  active={category === 'all'}
+   403→                  onClick={() => {
+   404→                    setCategory('all');
+   405→                    setFacilityId('');
+   406→                  }}
+   407→                  icon={<Building2 className="w-3.5 h-3.5" />}
+   408→                  label={lang === 'bm' ? 'Semua' : 'All'}
+   409→                />
+   410→                <CategoryChip
+   411→                  active={category === 'COMPUTER_ROOM'}
+   412→                  onClick={() => {
+   413→                    setCategory('COMPUTER_ROOM');
+   414→                    setFacilityId('');
+   415→                  }}
+   416→                  icon={<Monitor className="w-3.5 h-3.5" />}
+   417→                  label={lang === 'bm' ? 'Bilik Komputer' : 'Computer Room'}
+   418→                />
+   419→                <CategoryChip
+   420→                  active={category === 'LECTURE_HALL'}
+   421→                  onClick={() => {
+   422→                    setCategory('LECTURE_HALL');
+   423→                    setFacilityId('');
+   424→                  }}
+   425→                  icon={<GraduationCap className="w-3.5 h-3.5" />}
+   426→                  label={lang === 'bm' ? 'Dewan Kuliah' : 'Lecture Hall'}
+   427→                />
+   428→              </div>
+   429→            </div>
+   430→
+   431→            <div className="space-y-2">
+   432→              <Label htmlFor="facility" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   433→                <Building2 className="w-3 h-3 text-teal-500" />
+   434→                {t('form_facility')} <span className="text-destructive">*</span>
+   435→              </Label>
+   436→              <Select value={facilityId} onValueChange={setFacilityId}>
+   437→                <SelectTrigger
+   438→                  id="facility"
+   439→                  className={cn('glass-input w-full', showErrors && errors.facilityId && 'border-destructive ring-destructive/30')}
+   440→                >
+   441→                  <SelectValue placeholder={
+   442→                    loadingFacilities
+   443→                      ? t('loading')
+   444→                      : lang === 'bm'
+   445→                        ? 'Pilih kemudahan…'
+   446→                        : 'Select facility…'
+   447→                  } />
+   448→                </SelectTrigger>
+   449→                <SelectContent className="glass-strong max-h-72">
+   450→                  {filteredFacilities.length === 0 ? (
+   451→                    <div className="px-3 py-2 text-xs text-muted-foreground">
+   452→                      {lang === 'bm' ? 'Tiada kemudahan' : 'No facilities'}
+   453→                    </div>
+   454→                  ) : (
+   455→                    filteredFacilities.map((f) => (
+   456→                      <SelectItem key={f.id} value={f.id}>
+   457→                        <span className="flex items-center gap-2">
+   458→                          <span
+   459→                            className="w-2 h-2 rounded-full"
+   460→                            style={{ background: f.colorCode }}
+   461→                          />
+   462→                          <span>{f.name}</span>
+   463→                          <span className="text-muted-foreground text-[10px]">
+   464→                            · {lang === 'bm' ? 'Kapasiti' : 'Cap.'} {f.capacity}
+   465→                          </span>
+   466→                        </span>
+   467→                      </SelectItem>
+   468→                    ))
+   469→                  )}
+   470→                </SelectContent>
+   471→              </Select>
+   472→              {showErrors && errors.facilityId && (
+   473→                <p className="text-[11px] text-destructive flex items-center gap-1">
+   474→                  <AlertCircle className="w-3 h-3" /> {errors.facilityId}
+   475→                </p>
+   476→              )}
+   477→            </div>
+   478→          </div>
+   479→
+   480→          {/* Date */}
+   481→          <div className="space-y-2">
+   482→            <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   483→              <CalendarDays className="w-3 h-3 text-teal-500" />
+   484→              {t('form_date')} <span className="text-destructive">*</span>
+   485→            </Label>
+   486→            <div className="flex flex-col sm:flex-row gap-3 items-start">
+   487→              <div className="glass-input rounded-lg p-1 inline-block">
+   488→                <Calendar
+   489→                  mode="single"
+   490→                  selected={date}
+   491→                  onSelect={setDate}
+   492→                  disabled={(d) => d < today}
+   493→                  locale={locale === 'ms-MY' ? undefined : undefined}
+   494→                  className="text-xs"
+   495→                />
+   496→              </div>
+   497→              <div className="flex-1 space-y-2 w-full">
+   498→                {date ? (
+   499→                  <div className="glass-input rounded-md px-3 py-2.5 text-sm flex items-center gap-2">
+   500→                    <CalendarDays className="w-4 h-4 text-teal-500" />
+   501→                    <span className="font-medium">
+   502→                      {date.toLocaleDateString(locale, {
+   503→                        weekday: 'long',
+   504→                        day: 'numeric',
+   505→                        month: 'long',
+   506→                        year: 'numeric',
+   507→                      })}
+   508→                    </span>
+   509→                  </div>
+   510→                ) : (
+   511→                  <div className="glass-input rounded-md px-3 py-2.5 text-sm text-muted-foreground italic">
+   512→                    {lang === 'bm' ? 'Pilih tarikh dari kalendar' : 'Pick a date from the calendar'}
+   513→                  </div>
+   514→                )}
+   515→                {showErrors && errors.date && (
+   516→                  <p className="text-[11px] text-destructive flex items-center gap-1">
+   517→                    <AlertCircle className="w-3 h-3" /> {errors.date}
+   518→                  </p>
+   519→                )}
+   520→              </div>
+   521→            </div>
+   522→          </div>
+   523→
+   524→          {/* Time */}
+   525→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   526→            <div className="space-y-2">
+   527→              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   528→                <Clock className="w-3 h-3 text-teal-500" />
+   529→                {t('form_start')} <span className="text-destructive">*</span>
+   530→              </Label>
+   531→              <Select value={startTime} onValueChange={setStartTime} disabled={timeOptions.length === 0}>
+   532→                <SelectTrigger className={cn('glass-input w-full', showErrors && errors.startTime && 'border-destructive ring-destructive/30')}>
+   533→                  <SelectValue placeholder={lang === 'bm' ? 'Mula' : 'Start'} />
+   534→                </SelectTrigger>
+   535→                <SelectContent className="glass-strong max-h-64">
+   536→                  {timeOptions.map((o) => (
+   537→                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   538→                  ))}
+   539→                </SelectContent>
+   540→              </Select>
+   541→              {showErrors && errors.startTime && (
+   542→                <p className="text-[11px] text-destructive flex items-center gap-1">
+   543→                  <AlertCircle className="w-3 h-3" /> {errors.startTime}
+   544→                </p>
+   545→              )}
+   546→            </div>
+   547→            <div className="space-y-2">
+   548→              <Label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   549→                <Clock className="w-3 h-3 text-teal-500" />
+   550→                {t('form_end')} <span className="text-destructive">*</span>
+   551→              </Label>
+   552→              <Select value={endTime} onValueChange={setEndTime} disabled={timeOptions.length === 0}>
+   553→                <SelectTrigger className={cn('glass-input w-full', showErrors && errors.endTime && 'border-destructive ring-destructive/30')}>
+   554→                  <SelectValue placeholder={lang === 'bm' ? 'Tamat' : 'End'} />
+   555→                </SelectTrigger>
+   556→                <SelectContent className="glass-strong max-h-64">
+   557→                  {timeOptions.map((o) => (
+   558→                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+   559→                  ))}
+   560→                </SelectContent>
+   561→              </Select>
+   562→              {showErrors && errors.endTime && (
+   563→                <p className="text-[11px] text-destructive flex items-center gap-1">
+   564→                  <AlertCircle className="w-3 h-3" /> {errors.endTime}
+   565→                </p>
+   566→              )}
+   567→            </div>
+   568→          </div>
+   569→          {invalidTime && (
+   570→            <p className="text-[11px] text-destructive flex items-center gap-1">
+   571→              <AlertCircle className="w-3 h-3" /> {errors.time}
+   572→            </p>
+   573→          )}
+   574→
+   575→          {/* Purpose */}
+   576→          <div className="space-y-2">
+   577→            <Label htmlFor="purpose" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   578→              <FileText className="w-3 h-3 text-teal-500" />
+   579→              {t('form_purpose')} <span className="text-destructive">*</span>
+   580→            </Label>
+   581→            <Textarea
+   582→              id="purpose"
+   583→              value={purpose}
+   584→              onChange={(e) => setPurpose(e.target.value)}
+   585→              rows={2}
+   586→              maxLength={300}
+   587→              placeholder={lang === 'bm' ? 'cth: Latihan pengaturcaraan untuk kakitangan baru' : 'e.g. Programming training for new staff'}
+   588→              className={cn('glass-input resize-none', showErrors && errors.purpose && 'border-destructive ring-destructive/30')}
+   589→            />
+   590→            <div className="flex justify-between text-[10px] text-muted-foreground">
+   591→              <span>{showErrors && errors.purpose ? errors.purpose : ''}</span>
+   592→              <span>{purpose.length}/300</span>
+   593→            </div>
+   594→          </div>
+   595→
+   596→          {/* Program name + participants */}
+   597→          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+   598→            <div className="space-y-2">
+   599→              <Label htmlFor="program" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   600→                <Tag className="w-3 h-3 text-teal-500" />
+   601→                {t('form_program')}
+   602→              </Label>
+   603→              <Input
+   604→                id="program"
+   605→                value={programName}
+   606→                onChange={(e) => setProgramName(e.target.value)}
+   607→                maxLength={200}
+   608→                placeholder={lang === 'bm' ? 'cth: Kursus Python Asas' : 'e.g. Basic Python Course'}
+   609→                className="glass-input"
+   610→              />
+   611→            </div>
+   612→            <div className="space-y-2">
+   613→              <Label htmlFor="participants" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   614→                <Users className="w-3 h-3 text-teal-500" />
+   615→                {t('form_participants')} <span className="text-destructive">*</span>
+   616→              </Label>
+   617→              <Input
+   618→                id="participants"
+   619→                type="number"
+   620→                min={1}
+   621→                max={1000}
+   622→                value={participantCount}
+   623→                onChange={(e) => setParticipantCount(e.target.value)}
+   624→                placeholder="0"
+   625→                className={cn('glass-input', showErrors && errors.participants && 'border-destructive ring-destructive/30')}
+   626→              />
+   627→              {showErrors && errors.participants && (
+   628→                <p className="text-[11px] text-destructive flex items-center gap-1">
+   629→                  <AlertCircle className="w-3 h-3" /> {errors.participants}
+   630→                </p>
+   631→              )}
+   632→            </div>
+   633→          </div>
+   634→
+   635→          {/* Equipment */}
+   636→          <div className="space-y-2">
+   637→            <Label htmlFor="equipment" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   638→              <Wrench className="w-3 h-3 text-teal-500" />
+   639→              {t('form_equipment')}
+   640→            </Label>
+   641→            <Textarea
+   642→              id="equipment"
+   643→              value={equipmentNeeded}
+   644→              onChange={(e) => setEquipmentNeeded(e.target.value)}
+   645→              rows={2}
+   646→              maxLength={500}
+   647→              placeholder={lang === 'bm' ? 'cth: 30 set komputer, projektor, mikrofon' : 'e.g. 30 computers, projector, microphone'}
+   648→              className="glass-input resize-none"
+   649→            />
+   650→            {selectedFacility && equipmentList.length > 0 && (
+   651→              <div className="flex flex-wrap gap-1.5 pt-1">
+   652→                {equipmentList.slice(0, 6).map((eq: string, i: number) => (
+   653→                  <button
+   654→                    key={i}
+   655→                    type="button"
+   656→                    onClick={() => {
+   657→                      const cur = equipmentNeeded.trim();
+   658→                      setEquipmentNeeded(cur ? `${cur}, ${eq}` : eq);
+   659→                    }}
+   660→                    className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/10 text-teal-700 dark:text-teal-300 hover:bg-teal-500/20 transition-colors"
+   661→                  >
+   662→                    + {eq}
+   663→                  </button>
+   664→                ))}
+   665→              </div>
+   666→            )}
+   667→          </div>
+   668→
+   669→          {/* Notes */}
+   670→          <div className="space-y-2">
+   671→            <Label htmlFor="notes" className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+   672→              <StickyNote className="w-3 h-3 text-teal-500" />
+   673→              {t('form_notes')}
+   674→            </Label>
+   675→            <Textarea
+   676→              id="notes"
+   677→              value={notes}
+   678→              onChange={(e) => setNotes(e.target.value)}
+   679→              rows={2}
+   680→              maxLength={1000}
+   681→              placeholder={lang === 'bm' ? 'Catatan tambahan untuk pentadbir…' : 'Additional notes for the admin…'}
+   682→              className="glass-input resize-none"
+   683→            />
+   684→          </div>
+   685→
+   686→          {/* Action buttons */}
+   687→          <div className="flex flex-col sm:flex-row gap-2 pt-2 border-t border-border/40">
+   688→            <Button
+   689→              onClick={() => handleSubmit(false)}
+   690→              disabled={submitting || savingDraft}
+   691→              className="flex-1 gradient-primary text-primary-foreground hover:opacity-90"
+   692→              size="lg"
+   693→            >
+   694→              {submitting ? (
+   695→                <Loader2 className="w-4 h-4 animate-spin" />
+   696→              ) : (
+   697→                <Send className="w-4 h-4" />
+   698→              )}
+   699→              {t('form_submit')}
+   700→            </Button>
+   701→            <Button
+   702→              onClick={() => handleSubmit(true)}
+   703→              disabled={submitting || savingDraft}
+   704→              variant="outline"
+   705→              className="flex-1 glass-input border-amber-500/40 text-amber-700 dark:text-amber-300 hover:bg-amber-500/10"
+   706→              size="lg"
+   707→            >
+   708→              {savingDraft ? (
+   709→                <Loader2 className="w-4 h-4 animate-spin" />
+   710→              ) : (
+   711→                <Save className="w-4 h-4" />
+   712→              )}
+   713→              {t('form_save_draft')}
+   714→            </Button>
+   715→            <Button
+   716→              onClick={() => setView('dashboard')}
+   717→              variant="ghost"
+   718→              size="lg"
+   719→              disabled={submitting || savingDraft}
+   720→              className="sm:w-auto"
+   721→            >
+   722→              <X className="w-4 h-4" />
+   723→              {t('form_cancel')}
+   724→            </Button>
+   725→          </div>
+   726→        </GlassCard>
+   727→
+   728→        {/* ===== SIDE PANEL (1 col) ===== */}
+   729→        <div className="space-y-4">
+   730→          {/* Selected facility info */}
+   731→          {selectedFacility ? (
+   732→            <GlassCard strong className="p-5 space-y-3">
+   733→              <div className="flex items-center gap-2">
+   734→                <span
+   735→                  className="w-3 h-3 rounded-full"
+   736→                  style={{ background: selectedFacility.colorCode }}
+   737→                />
+   738→                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+   739→                  {selectedFacility.category === 'COMPUTER_ROOM'
+   740→                    ? lang === 'bm' ? 'Bilik Komputer' : 'Computer Room'
+   741→                    : lang === 'bm' ? 'Dewan Kuliah' : 'Lecture Hall'}
+   742→                </span>
+   743→              </div>
+   744→              <h3 className="text-lg font-bold gradient-text leading-tight">{selectedFacility.name}</h3>
+   745→              {selectedFacility.location && (
+   746→                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+   747→                  <MapPin className="w-3 h-3" />
+   748→                  <span>{selectedFacility.location}</span>
+   749→                </div>
+   750→              )}
+   751→              <div className="grid grid-cols-2 gap-2 pt-1">
+   752→                <div className="glass-input rounded-md p-2.5">
+   753→                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+   754→                    <Users className="w-2.5 h-2.5" /> {lang === 'bm' ? 'Kapasiti' : 'Capacity'}
+   755→                  </div>
+   756→                  <div className="text-base font-bold text-teal-600 dark:text-teal-400">{selectedFacility.capacity}</div>
+   757→                </div>
+   758→                <div className="glass-input rounded-md p-2.5">
+   759→                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+   760→                    <Clock className="w-2.5 h-2.5" /> {lang === 'bm' ? 'Operasi' : 'Hours'}
+   761→                  </div>
+   762→                  <div className="text-base font-bold text-teal-600 dark:text-teal-400">
+   763→                    {selectedFacility.operatingStart}–{selectedFacility.operatingEnd}
+   764→                  </div>
+   765→                </div>
+   766→              </div>
+   767→              {equipmentList.length > 0 && (
+   768→                <div className="pt-1">
+   769→                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5 flex items-center gap-1">
+   770→                    <Wrench className="w-2.5 h-2.5" /> {lang === 'bm' ? 'Peralatan Tersedia' : 'Equipment Available'}
+   771→                  </div>
+   772→                  <div className="flex flex-wrap gap-1">
+   773→                    {equipmentList.map((eq: string, i: number) => (
+   774→                      <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300">
+   775→                        {eq}
+   776→                      </span>
+   777→                    ))}
+   778→                  </div>
+   779→                </div>
+   780→              )}
+   781→            </GlassCard>
+   782→          ) : (
+   783→            <GlassCard className="p-5 text-center text-sm text-muted-foreground">
+   784→              <Building2 className="w-8 h-8 mx-auto mb-2 opacity-40" />
+   785→              <p>{lang === 'bm' ? 'Pilih kemudahan untuk lihat butiran.' : 'Select a facility to see details.'}</p>
+   786→            </GlassCard>
+   787→          )}
+   788→
+   789→          {/* Capacity warning */}
+   790→          {capacityExceeded && selectedFacility && (
+   791→            <Alert className="border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200">
+   792→              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+   793→              <AlertTitle className="text-amber-800 dark:text-amber-200">
+   794→                {lang === 'bm' ? 'Amaran Kapasiti' : 'Capacity Warning'}
+   795→              </AlertTitle>
+   796→              <AlertDescription className="text-amber-700 dark:text-amber-300 text-xs">
+   797→                {t('form_capacity_warn')} ({participants} / {selectedFacility.capacity})
+   798→              </AlertDescription>
+   799→            </Alert>
+   800→          )}
+   801→
+   802→          {/* Conflict checking indicator */}
+   803→          {checkingConflict && (
+   804→            <div className="glass-card rounded-lg p-3 flex items-center gap-2 text-xs text-muted-foreground">
+   805→              <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-500" />
+   806→              <span>{lang === 'bm' ? 'Memeriksa konflik masa…' : 'Checking for time conflicts…'}</span>
+   807→            </div>
+   808→          )}
+   809→
+   810→          {/* Conflict warning */}
+   811→          {hasConflict && conflictResult && (
+   812→            <Alert variant="destructive" className="border-destructive/40 bg-destructive/10">
+   813→              <AlertCircle className="w-4 h-4" />
+   814→              <AlertTitle>
+   815→                {lang === 'bm' ? 'Konflik Dikesan' : 'Conflict Detected'}
+   816→              </AlertTitle>
+   817→              <AlertDescription className="space-y-2">
+   818→                <p className="text-xs">{t('form_conflict_warn')}</p>
+   819→                {conflictResult.conflictingBookings.length > 0 && (
+   820→                  <div className="space-y-1 pt-1">
+   821→                    {conflictResult.conflictingBookings.slice(0, 3).map((b) => (
+   822→                      <div
+   823→                        key={b.id}
+   824→                        className="text-[10px] px-2 py-1 rounded bg-destructive/10 border border-destructive/20 flex items-center justify-between gap-2"
+   825→                      >
+   826→                        <span className="font-mono">{b.bookingRef}</span>
+   827→                        <span className="font-semibold">
+   828→                          {b.startTime}–{b.endTime}
+   829→                        </span>
+   830→                      </div>
+   831→                    ))}
+   832→                  </div>
+   833→                )}
+   834→              </AlertDescription>
+   835→            </Alert>
+   836→          )}
+   837→
+   838→          {/* Alternative slots */}
+   839→          {hasAlternatives && conflictResult && (
+   840→            <GlassCard className="p-4 space-y-2 border-emerald-500/30">
+   841→              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+   842→                <Lightbulb className="w-3.5 h-3.5" />
+   843→                <span>{lang === 'bm' ? 'Slot Alternatif Tersedia' : 'Alternative Slots Available'}</span>
+   844→              </div>
+   845→              <div className="flex flex-wrap gap-1.5">
+   846→                {conflictResult.alternatives.map((alt, i) => (
+   847→                  <button
+   848→                    key={`${alt.startTime}-${i}`}
+   849→                    onClick={() => applyAlternative(alt)}
+   850→                    className="text-[11px] px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-500/25 transition-colors border border-emerald-500/30 font-medium"
+   851→                  >
+   852→                    {alt.startTime}–{alt.endTime}
+   853→                  </button>
+   854→                ))}
+   855→              </div>
+   856→              <p className="text-[10px] text-muted-foreground">
+   857→                {lang === 'bm' ? 'Klik untuk guna slot alternatif.' : 'Click to apply an alternative slot.'}
+   858→              </p>
+   859→            </GlassCard>
+   860→          )}
+   861→
+   862→          {/* Tips */}
+   863→          <GlassCard className="p-4 space-y-2">
+   864→            <div className="flex items-center gap-2 text-xs font-semibold text-teal-700 dark:text-teal-300">
+   865→              <Sparkles className="w-3.5 h-3.5" />
+   866→              <span>{lang === 'bm' ? 'Tip Permohonan' : 'Booking Tips'}</span>
+   867→            </div>
+   868→            <ul className="text-[11px] text-muted-foreground space-y-1.5 leading-relaxed">
+   869→              <li className="flex gap-1.5">
+   870→                <span className="text-teal-500">•</span>
+   871→                <span>
+   872→                  {lang === 'bm'
+   873→                    ? 'Semakan konflik dibuat secara real-time semasa anda mengisi.'
+   874→                    : 'Conflict check runs in real-time as you fill the form.'}
+   875→                </span>
+   876→              </li>
+   877→              <li className="flex gap-1.5">
+   878→                <span className="text-teal-500">•</span>
+   879→                <span>
+   880→                  {lang === 'bm'
+   881→                    ? 'Draf boleh disimpan dan dihantar kemudian.'
+   882→                    : 'Drafts can be saved and submitted later.'}
+   883→                </span>
+   884→              </li>
+   885→              <li className="flex gap-1.5">
+   886→                <span className="text-teal-500">•</span>
+   887→                <span>
+   888→                  {lang === 'bm'
+   889→                    ? 'Tempahan dewan kuliah > 100 peserta memerlukan kelulusan berperingkat.'
+   890→                    : 'Lecture hall bookings > 100 pax require multi-level approval.'}
+   891→                </span>
+   892→              </li>
+   893→            </ul>
+   894→          </GlassCard>
+   895→        </div>
+   896→      </div>
+   897→    </motion.div>
+   898→  );
+   899→}
+   900→
+   901→/* ============================================================
+   902→   Category chip — small toggle for facility type filter
+   903→   ============================================================ */
+   904→function CategoryChip({
+   905→  active,
+   906→  onClick,
+   907→  icon,
+   908→  label,
+   909→}: {
+   910→  active: boolean;
+   911→  onClick: () => void;
+   912→  icon: React.ReactNode;
+   913→  label: string;
+   914→}) {
+   915→  return (
+   916→    <button
+   917→      type="button"
+   918→      onClick={onClick}
+   919→      className={cn(
+   920→        'flex items-center justify-center gap-1.5 px-2 py-2 rounded-md text-xs font-medium transition-all border',
+   921→        active
+   922→          ? 'bg-primary text-primary-foreground border-primary shadow-sm'
+   923→          : 'glass-input border-border/40 text-muted-foreground hover:text-foreground hover:bg-accent/50',
+   924→      )}
+   925→    >
+   926→      {icon}
+   927→      <span className="truncate">{label}</span>
+   928→    </button>
+   929→  );
+   930→}
+   931→

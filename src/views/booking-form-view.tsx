@@ -365,7 +365,7 @@ export function BookingFormView() {
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
-      className="space-y-4"
+      className="space-y-4 pb-8"
     >
       {/* ===== HERO ===== */}
       <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
@@ -387,9 +387,9 @@ export function BookingFormView() {
         </div>
       </GlassCard>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-w-0">
         {/* ===== MAIN FORM (2 cols) ===== */}
-        <GlassCard className="lg:col-span-2 p-5 lg:p-6 space-y-5">
+        <GlassCard className="lg:col-span-2 p-5 lg:p-6 space-y-5 min-w-0 overflow-visible">
           {/* Category + Facility */}
           <div className="space-y-4">
             <div className="space-y-2">
@@ -436,7 +436,7 @@ export function BookingFormView() {
               <Select value={facilityId} onValueChange={setFacilityId}>
                 <SelectTrigger
                   id="facility"
-                  className={cn('glass-input w-full', showErrors && errors.facilityId && 'border-destructive ring-destructive/30')}
+                  className={cn('glass-input w-full min-w-0', showErrors && errors.facilityId && 'border-destructive ring-destructive/30')}
                 >
                   <SelectValue placeholder={
                     loadingFacilities
@@ -454,13 +454,13 @@ export function BookingFormView() {
                   ) : (
                     filteredFacilities.map((f) => (
                       <SelectItem key={f.id} value={f.id}>
-                        <span className="flex items-center gap-2">
+                        <span className="flex items-center gap-2 min-w-0 w-full">
                           <span
-                            className="w-2 h-2 rounded-full"
+                            className="w-2 h-2 rounded-full shrink-0"
                             style={{ background: f.colorCode }}
                           />
-                          <span>{f.name}</span>
-                          <span className="text-muted-foreground text-[10px]">
+                          <span className="truncate">{f.name}</span>
+                          <span className="text-muted-foreground text-[10px] shrink-0">
                             · {lang === 'bm' ? 'Kapasiti' : 'Cap.'} {f.capacity}
                           </span>
                         </span>
@@ -483,8 +483,8 @@ export function BookingFormView() {
               <CalendarDays className="w-3 h-3 text-teal-500" />
               {t('form_date')} <span className="text-destructive">*</span>
             </Label>
-            <div className="flex flex-col sm:flex-row gap-3 items-start">
-              <div className="glass-input rounded-lg p-1 inline-block">
+            <div className="flex flex-col sm:flex-row gap-3 items-start min-w-0 w-full overflow-visible">
+              <div className="glass-input rounded-lg p-1 inline-block overflow-visible shrink-0">
                 <Calendar
                   mode="single"
                   selected={date}
@@ -494,7 +494,7 @@ export function BookingFormView() {
                   className="text-xs"
                 />
               </div>
-              <div className="flex-1 space-y-2 w-full">
+              <div className="flex-1 min-w-0 space-y-2">
                 {date ? (
                   <div className="glass-input rounded-md px-3 py-2.5 text-sm flex items-center gap-2">
                     <CalendarDays className="w-4 h-4 text-teal-500" />
@@ -529,7 +529,7 @@ export function BookingFormView() {
                 {t('form_start')} <span className="text-destructive">*</span>
               </Label>
               <Select value={startTime} onValueChange={setStartTime} disabled={timeOptions.length === 0}>
-                <SelectTrigger className={cn('glass-input w-full', showErrors && errors.startTime && 'border-destructive ring-destructive/30')}>
+                <SelectTrigger className={cn('glass-input w-full min-w-0', showErrors && errors.startTime && 'border-destructive ring-destructive/30')}>
                   <SelectValue placeholder={lang === 'bm' ? 'Mula' : 'Start'} />
                 </SelectTrigger>
                 <SelectContent className="glass-strong max-h-64">
@@ -550,7 +550,7 @@ export function BookingFormView() {
                 {t('form_end')} <span className="text-destructive">*</span>
               </Label>
               <Select value={endTime} onValueChange={setEndTime} disabled={timeOptions.length === 0}>
-                <SelectTrigger className={cn('glass-input w-full', showErrors && errors.endTime && 'border-destructive ring-destructive/30')}>
+                <SelectTrigger className={cn('glass-input w-full min-w-0', showErrors && errors.endTime && 'border-destructive ring-destructive/30')}>
                   <SelectValue placeholder={lang === 'bm' ? 'Tamat' : 'End'} />
                 </SelectTrigger>
                 <SelectContent className="glass-strong max-h-64">
@@ -584,8 +584,8 @@ export function BookingFormView() {
               onChange={(e) => setPurpose(e.target.value)}
               rows={2}
               maxLength={300}
-              placeholder={lang === 'bm' ? 'cth: Latihan pengaturcaraan untuk kakitangan baru' : 'e.g. Programming training for new staff'}
-              className={cn('glass-input resize-none', showErrors && errors.purpose && 'border-destructive ring-destructive/30')}
+              placeholder={lang === 'bm' ? 'cth: Latihan pengaturcaraan staf baru' : 'e.g. Programming training for new staff'}
+              className={cn('glass-input resize-none w-full min-h-[64px]', showErrors && errors.purpose && 'border-destructive ring-destructive/30')}
             />
             <div className="flex justify-between text-[10px] text-muted-foreground">
               <span>{showErrors && errors.purpose ? errors.purpose : ''}</span>
@@ -622,7 +622,7 @@ export function BookingFormView() {
                 value={participantCount}
                 onChange={(e) => setParticipantCount(e.target.value)}
                 placeholder="0"
-                className={cn('glass-input', showErrors && errors.participants && 'border-destructive ring-destructive/30')}
+                className={cn('glass-input text-center', showErrors && errors.participants && 'border-destructive ring-destructive/30')}
               />
               {showErrors && errors.participants && (
                 <p className="text-[11px] text-destructive flex items-center gap-1">

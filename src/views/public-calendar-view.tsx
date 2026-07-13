@@ -190,9 +190,9 @@ function BookingChip({ booking }: { booking: PublicBooking }) {
         <span>{booking.startTime} – {booking.endTime}</span>
       </div>
       <div className="text-foreground/80 font-medium mt-0.5 line-clamp-2">{booking.programName ?? booking.facility.name}</div>
-      <div className="flex items-center gap-1 text-muted-foreground mt-0.5">
-        <MapPin className="w-2.5 h-2.5" />
-        <span className="truncate">{booking.facility.name}</span>
+      <div className="flex items-center gap-1 text-muted-foreground mt-0.5 min-w-0">
+        <MapPin className="w-2.5 h-2.5 shrink-0" />
+        <span className="break-words leading-tight">{booking.facility.name}</span>
       </div>
       {expanded && (
         <div className="mt-1.5 pt-1.5 border-t border-border/40 space-y-1">

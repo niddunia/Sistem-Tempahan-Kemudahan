@@ -532,14 +532,14 @@ export function UsersView() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="pl-4">{t('name')}</TableHead>
-                  <TableHead>{tr('Peranan', 'Role')}</TableHead>
-                  <TableHead>{t('department')}</TableHead>
-                  <TableHead>{t('staffId')}</TableHead>
-                  <TableHead>{t('phone')}</TableHead>
-                  <TableHead>{tr('Log Masuk Terakhir', 'Last Login')}</TableHead>
-                  <TableHead>{tr('Status', 'Status')}</TableHead>
-                  <TableHead className="text-right pr-4">{t('actions')}</TableHead>
+                  <TableHead className="pl-4 whitespace-nowrap min-w-[200px]">{t('name')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Peranan', 'Role')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[140px]">{t('department')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[110px]">{t('staffId')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[120px]">{tr('Telefon', 'Phone')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[130px]">{tr('Akhir Log Masuk', 'Last Login')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[100px]">{tr('Status', 'Status')}</TableHead>
+                  <TableHead className="text-right pr-4 whitespace-nowrap min-w-[150px]">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -575,7 +575,7 @@ export function UsersView() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <RoleBadge role={u.role} />
+                        <RoleBadge role={u.role} className="whitespace-nowrap" />
                       </TableCell>
                       <TableCell>
                         {u.department ? (

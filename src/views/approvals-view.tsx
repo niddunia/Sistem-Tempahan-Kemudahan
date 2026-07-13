@@ -588,7 +588,7 @@ function ApprovalListItem({
     <button
       onClick={onSelect}
       className={cn(
-        'w-full text-left p-3 rounded-xl border transition-all duration-200 group',
+        'w-full text-left p-3.5 rounded-xl border transition-all duration-200 group min-w-0',
         selected
           ? 'border-teal-500/60 bg-teal-500/10 shadow-sm ring-1 ring-teal-500/30'
           : 'border-border/40 bg-white/40 dark:bg-white/5 hover:border-teal-400/40 hover:bg-teal-500/5',
@@ -596,28 +596,32 @@ function ApprovalListItem({
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] font-bold text-teal-700 dark:text-teal-400">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-mono text-[11px] font-bold text-teal-700 dark:text-teal-400 shrink-0">
               {booking.bookingRef}
             </span>
             {booking.requiresMultiLevel && (
-              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-rose-300/60 bg-rose-100/70 text-rose-700">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-rose-300/60 bg-rose-100/70 text-rose-700 shrink-0">
                 <ShieldAlert className="w-2.5 h-2.5" />
                 {lang === 'bm' ? 'Multi-level' : 'Multi-level'}
               </span>
             )}
           </div>
-          <div className="font-semibold text-sm truncate mt-0.5">{booking.user.name}</div>
+          <div className="font-semibold text-sm mt-1 break-words whitespace-normal leading-snug">
+            {booking.user.name}
+          </div>
         </div>
-        <StatusBadge status={booking.status} className="shrink-0 !text-[10px] !px-2 !py-0.5" />
+        <StatusBadge status={booking.status} className="shrink-0 !text-[10px] !px-2 !py-0.5 self-start" />
       </div>
 
-      <div className="flex items-center gap-2 mb-1.5">
+      <div className="flex items-center gap-2 mb-1.5 min-w-0">
         <span
           className="w-2.5 h-2.5 rounded-full shrink-0"
           style={{ background: booking.facility.colorCode }}
         />
-        <span className="text-xs text-foreground/80 truncate flex-1">{booking.facility.name}</span>
+        <span className="text-xs text-foreground/80 line-clamp-2 flex-1 min-w-0 break-words">
+          {booking.facility.name}
+        </span>
       </div>
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
@@ -636,7 +640,7 @@ function ApprovalListItem({
       </div>
 
       {booking.programName && (
-        <div className="mt-1.5 text-[11px] text-foreground/70 truncate">
+        <div className="mt-2 text-[11px] text-foreground/70 line-clamp-2 break-words min-w-0">
           <span className="opacity-70">{t('form_program')}:</span> {booking.programName}
         </div>
       )}
@@ -743,15 +747,15 @@ function DetailPanel({
                 </div>
                 <div className="text-xs space-y-1">
                   {conflict.conflictingBookings.map((c) => (
-                    <div key={c.id} className="flex items-center gap-2">
-                      <span className="font-mono">{c.bookingRef}</span>
-                      <span>·</span>
-                      <span>
+                    <div key={c.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
+                      <span className="font-mono shrink-0">{c.bookingRef}</span>
+                      <span className="shrink-0">·</span>
+                      <span className="shrink-0">
                         {c.startTime}–{c.endTime}
                       </span>
-                      <span>·</span>
-                      <StatusBadge status={c.status} className="!text-[9px] !px-1.5 !py-0" />
-                      {c.programName && <span className="truncate opacity-80">— {c.programName}</span>}
+                      <span className="shrink-0">·</span>
+                      <StatusBadge status={c.status} className="!text-[9px] !px-1.5 !py-0 shrink-0" />
+                      {c.programName && <span className="line-clamp-2 break-words opacity-80 min-w-0 flex-1 basis-full sm:basis-auto">— {c.programName}</span>}
                     </div>
                   ))}
                 </div>
@@ -838,7 +842,7 @@ function DetailPanel({
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
               {t('form_date' as never)}
             </Label>
             <div className="text-sm font-medium">
@@ -851,7 +855,7 @@ function DetailPanel({
             </div>
           </div>
           <div>
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
               {lang === 'bm' ? 'Masa' : 'Time'}
             </Label>
             <div className="text-sm font-medium">
@@ -859,7 +863,7 @@ function DetailPanel({
             </div>
           </div>
           <div>
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
               {t('form_participants' as never)}
             </Label>
             <div className="text-sm font-medium flex items-center gap-2">
@@ -876,10 +880,12 @@ function DetailPanel({
             </div>
           </div>
           <div>
-            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
               {t('form_program' as never)}
             </Label>
-            <div className="text-sm font-medium">{booking.programName || '—'}</div>
+            <div className="text-sm font-medium break-words whitespace-normal leading-snug">
+              {booking.programName || '—'}
+            </div>
           </div>
           <div className="md:col-span-2">
             <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
@@ -971,15 +977,17 @@ function DetailRow({
   warn?: boolean;
 }) {
   return (
-    <div className="flex items-start gap-2.5">
+    <div className="flex items-start gap-2.5 min-w-0">
       <span className="w-6 h-6 rounded-md bg-white/50 dark:bg-white/5 flex items-center justify-center text-muted-foreground shrink-0 mt-0.5">
         {icon}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+        <div className="text-[10px] uppercase tracking-wide text-muted-foreground whitespace-nowrap">
+          {label}
+        </div>
         <div
           className={cn(
-            'text-sm font-medium truncate',
+            'text-sm font-medium break-words whitespace-normal leading-snug',
             warn && 'text-amber-700 dark:text-amber-400',
           )}
         >

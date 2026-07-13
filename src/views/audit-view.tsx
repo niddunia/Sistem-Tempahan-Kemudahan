@@ -403,55 +403,58 @@ export function AuditView() {
           </Alert>
         )}
 
-        {/* Table header (desktop only) */}
-        <div className="hidden lg:grid grid-cols-[150px_180px_120px_1fr_140px_110px_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60">
-          <div>{tr('Waktu', 'Timestamp')}</div>
-          <div>{tr('Pengguna', 'User')}</div>
-          <div>{tr('Modul', 'Module')}</div>
-          <div>{tr('Tindakan', 'Action')}</div>
-          <div>{tr('Entiti', 'Entity')}</div>
-          <div>IP</div>
-          <div></div>
-        </div>
+        {/* Table (desktop) — horizontally scrollable on narrow viewports */}
+        <div className="lg:overflow-x-auto lg:-mx-1 lg:px-1 lg:pb-1 [scrollbar-width:thin] [&::-webkit-scrollbar]:h-2 [&::-webkit-scrollbar-thumb]:bg-border/60 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
+          {/* Header (desktop only) */}
+          <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 px-3 py-2 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold border-b border-border/60 lg:min-w-[860px]">
+            <div className="whitespace-nowrap">{tr('Waktu', 'Timestamp')}</div>
+            <div className="whitespace-nowrap">{tr('Pengguna', 'User')}</div>
+            <div className="whitespace-nowrap">{tr('Modul', 'Module')}</div>
+            <div className="whitespace-nowrap">{tr('Tindakan', 'Action')}</div>
+            <div className="whitespace-nowrap">{tr('Entiti', 'Entity')}</div>
+            <div className="whitespace-nowrap">IP</div>
+            <div></div>
+          </div>
 
-        {/* List */}
-        <div className="mt-2 space-y-1.5">
-          {isLoading
-            ? Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="px-3 py-3 rounded-lg border border-border/40">
-                  <Skeleton className="h-4 w-full mb-2" />
-                  <Skeleton className="h-3 w-2/3" />
-                </div>
-              ))
-            : filteredLogs.length === 0
-            ? <EmptyState tr={tr} />
-            : filteredLogs.map((log) => (
-              <AuditRow
-                key={log.id}
-                log={log}
-                lang={lang}
-                expanded={expandedId === log.id}
-                onToggle={() => toggleExpand(log.id)}
-                tr={tr}
-              />
-            ))}
+          {/* List */}
+          <div className="mt-2 space-y-1.5 lg:min-w-[860px]">
+            {isLoading
+              ? Array.from({ length: 8 }).map((_, i) => (
+                  <div key={i} className="px-3 py-3 rounded-lg border border-border/40">
+                    <Skeleton className="h-4 w-full mb-2" />
+                    <Skeleton className="h-3 w-2/3" />
+                  </div>
+                ))
+              : filteredLogs.length === 0
+              ? <EmptyState tr={tr} />
+              : filteredLogs.map((log) => (
+                <AuditRow
+                  key={log.id}
+                  log={log}
+                  lang={lang}
+                  expanded={expandedId === log.id}
+                  onToggle={() => toggleExpand(log.id)}
+                  tr={tr}
+                />
+              ))}
+          </div>
         </div>
 
         {/* Pagination */}
         {!isLoading && filteredLogs.length > 0 && (
-          <div className="flex items-center justify-between gap-3 mt-4 pt-3 border-t border-border/60">
+          <div className="flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-3 mt-4 pt-3 border-t border-border/60">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={currentPage <= 1}
-              className="h-8"
+              className="h-8 w-full sm:w-auto justify-center"
             >
               <ChevronLeft className="w-4 h-4" />
               {tr('Sebelum', 'Prev')}
             </Button>
 
-            <span className="text-xs text-muted-foreground">
+            <span className="text-xs text-muted-foreground text-center whitespace-nowrap">
               {tr('Halaman', 'Page')} <span className="font-semibold text-foreground">{currentPage}</span> {tr('daripada', 'of')} <span className="font-semibold text-foreground">{Math.max(totalPages, 1)}</span>
             </span>
 
@@ -460,7 +463,7 @@ export function AuditView() {
               size="sm"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={currentPage >= totalPages}
-              className="h-8"
+              className="h-8 w-full sm:w-auto justify-center"
             >
               {tr('Seterus', 'Next')}
               <ChevronRight className="w-4 h-4" />
@@ -508,7 +511,7 @@ function AuditRow({
         className="w-full text-left px-3 py-3 focus:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40 rounded-lg"
       >
         {/* Desktop grid layout */}
-        <div className="hidden lg:grid grid-cols-[150px_180px_120px_1fr_140px_110px_40px] gap-3 items-center">
+        <div className="hidden lg:grid grid-cols-[minmax(120px,150px)_minmax(150px,180px)_minmax(100px,120px)_minmax(140px,1fr)_minmax(120px,140px)_minmax(100px,120px)_40px] gap-3 items-center">
           {/* Timestamp */}
           <div className="min-w-0">
             <div className="text-xs font-mono text-foreground truncate">{fmtTimestamp(log.createdAt, lang)}</div>
@@ -539,26 +542,26 @@ function AuditRow({
 
           {/* Module badge */}
           <div>
-            <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border', moduleCls)}>
+            <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap', moduleCls)}>
               {log.module}
             </span>
           </div>
 
           {/* Action + severity */}
           <div className="min-w-0 flex items-center gap-2">
-            <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0', sevCfg.cls)}>
+            <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border shrink-0 whitespace-nowrap', sevCfg.cls)}>
               <SevIcon className="w-2.5 h-2.5" />
             </span>
-            <span className="text-xs font-medium truncate font-mono">{log.action}</span>
+            <span className="text-xs font-medium whitespace-nowrap font-mono">{log.action}</span>
           </div>
 
           {/* Entity */}
           <div className="min-w-0 text-xs">
             {log.entity ? (
               <div className="flex items-center gap-1 min-w-0">
-                <span className="text-muted-foreground truncate">{log.entity}</span>
+                <span className="text-muted-foreground whitespace-nowrap">{log.entity}</span>
                 {log.entityId && (
-                  <span className="font-mono text-[10px] text-muted-foreground/70 truncate">#{log.entityId.slice(0, 8)}</span>
+                  <span className="font-mono text-[10px] text-muted-foreground/70 whitespace-nowrap">#{log.entityId.slice(0, 8)}</span>
                 )}
               </div>
             ) : (
@@ -567,7 +570,7 @@ function AuditRow({
           </div>
 
           {/* IP */}
-          <div className="text-[11px] font-mono text-muted-foreground truncate">{maskIp(log.ipAddress)}</div>
+          <div className="text-[11px] font-mono text-muted-foreground whitespace-nowrap">{maskIp(log.ipAddress)}</div>
 
           {/* Chevron */}
           <div className="flex justify-end">
@@ -583,10 +586,10 @@ function AuditRow({
         <div className="lg:hidden space-y-2">
           <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border', moduleCls)}>
+              <span className={cn('inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border whitespace-nowrap', moduleCls)}>
                 {log.module}
               </span>
-              <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border', sevCfg.cls)}>
+              <span className={cn('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border whitespace-nowrap', sevCfg.cls)}>
                 <SevIcon className="w-2.5 h-2.5" />
                 {log.severity}
               </span>
@@ -613,7 +616,7 @@ function AuditRow({
                 </>
               )}
             </div>
-            <span className="font-mono">{maskIp(log.ipAddress)}</span>
+            <span className="font-mono whitespace-nowrap">{maskIp(log.ipAddress)}</span>
           </div>
 
           <div className="text-[10px] text-muted-foreground font-mono">

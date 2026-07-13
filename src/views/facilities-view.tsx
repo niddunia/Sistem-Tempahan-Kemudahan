@@ -519,14 +519,14 @@ export function FacilitiesView() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-muted/30 hover:bg-muted/30">
-                  <TableHead className="pl-4">{t('name')}</TableHead>
-                  <TableHead>{tr('Kategori', 'Category')}</TableHead>
-                  <TableHead className="text-center">{t('form_participants')}</TableHead>
-                  <TableHead>{tr('Lokasi', 'Location')}</TableHead>
-                  <TableHead>{tr('Waktu Operasi', 'Operating Hours')}</TableHead>
-                  <TableHead>{tr('Peralatan', 'Equipment')}</TableHead>
-                  <TableHead>{tr('Status', 'Status')}</TableHead>
-                  <TableHead className="text-right pr-4">{t('actions')}</TableHead>
+                  <TableHead className="pl-4 whitespace-nowrap min-w-[180px]">{t('name')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[120px]">{tr('Kategori', 'Category')}</TableHead>
+                  <TableHead className="text-center whitespace-nowrap min-w-[90px]">{t('form_participants')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[160px]">{tr('Lokasi', 'Location')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[140px]">{tr('Waktu Operasi', 'Operating Hours')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[220px]">{tr('Peralatan', 'Equipment')}</TableHead>
+                  <TableHead className="whitespace-nowrap min-w-[100px]">{tr('Status', 'Status')}</TableHead>
+                  <TableHead className="text-right pr-4 whitespace-nowrap min-w-[160px]">{t('actions')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -588,17 +588,17 @@ export function FacilitiesView() {
                         {equip.length === 0 ? (
                           <span className="text-xs text-muted-foreground/60">—</span>
                         ) : (
-                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+                          <div className="flex flex-wrap gap-1 max-w-[260px]">
                             {equip.slice(0, 3).map((e, i) => (
                               <span
                                 key={`${f.id}-eq-${i}`}
-                                className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50/80 text-emerald-700 border border-emerald-200/60"
+                                className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50/80 text-emerald-700 border border-emerald-200/60 whitespace-normal break-words"
                               >
                                 {e}
                               </span>
                             ))}
                             {equip.length > 3 && (
-                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border whitespace-nowrap">
                                 +{equip.length - 3}
                               </span>
                             )}

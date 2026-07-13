@@ -1,0 +1,964 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useApp } from '@/lib/store';
+     6→import { useCurrentUser } from '@/hooks/use-current-user';
+     7→import { GlassCard } from '@/components/glass-card';
+     8→import { StatusBadge } from '@/components/status-badge';
+     9→import { Button } from '@/components/ui/button';
+    10→import { Input } from '@/components/ui/input';
+    11→import { Label } from '@/components/ui/label';
+    12→import { Textarea } from '@/components/ui/textarea';
+    13→import { Badge } from '@/components/ui/badge';
+    14→import { Skeleton } from '@/components/ui/skeleton';
+    15→import {
+    16→  Select,
+    17→  SelectContent,
+    18→  SelectItem,
+    19→  SelectTrigger,
+    20→  SelectValue,
+    21→} from '@/components/ui/select';
+    22→import {
+    23→  Dialog,
+    24→  DialogContent,
+    25→  DialogHeader,
+    26→  DialogTitle,
+    27→  DialogFooter,
+    28→  DialogDescription,
+    29→} from '@/components/ui/dialog';
+    30→import {
+    31→  AlertDialog,
+    32→  AlertDialogAction,
+    33→  AlertDialogCancel,
+    34→  AlertDialogContent,
+    35→  AlertDialogDescription,
+    36→  AlertDialogFooter,
+    37→  AlertDialogHeader,
+    38→  AlertDialogTitle,
+    39→} from '@/components/ui/alert-dialog';
+    40→import {
+    41→  Table,
+    42→  TableHeader,
+    43→  TableBody,
+    44→  TableRow,
+    45→  TableHead,
+    46→  TableCell,
+    47→} from '@/components/ui/table';
+    48→import {
+    49→  Building2,
+    50→  Users,
+    51→  PlusCircle,
+    52→  Pencil,
+    53→  Trash2,
+    54→  MapPin,
+    55→  Users2,
+    56→  Clock,
+    57→  Wrench,
+    58→  Search,
+    59→  ShieldCheck,
+    60→} from 'lucide-react';
+    61→import { motion } from 'framer-motion';
+    62→import { toast } from 'sonner';
+    63→import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+    64→import { cn } from '@/lib/utils';
+    65→
+    66→// ===================== Types =====================
+    67→type FacilityStatus = 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';
+    68→type Category = 'COMPUTER_ROOM' | 'LECTURE_HALL';
+    69→
+    70→interface Facility {
+    71→  id: string;
+    72→  name: string;
+    73→  category: Category;
+    74→  capacity: number;
+    75→  location?: string | null;
+    76→  equipment?: string | null;
+    77→  operatingStart?: string | null;
+    78→  operatingEnd?: string | null;
+    79→  colorCode: string;
+    80→  status: FacilityStatus;
+    81→  createdAt: string;
+    82→  updatedAt: string;
+    83→}
+    84→
+    85→interface FacilityFormState {
+    86→  name: string;
+    87→  category: Category;
+    88→  capacity: string;
+    89→  location: string;
+    90→  equipment: string;
+    91→  operatingStart: string;
+    92→  operatingEnd: string;
+    93→  colorCode: string;
+    94→}
+    95→
+    96→const DEFAULT_FORM: FacilityFormState = {
+    97→  name: '',
+    98→  category: 'COMPUTER_ROOM',
+    99→  capacity: '30',
+   100→  location: '',
+   101→  equipment: '',
+   102→  operatingStart: '08:00',
+   103→  operatingEnd: '22:00',
+   104→  colorCode: '#0d9488',
+   105→};
+   106→
+   107→// ===================== Helpers =====================
+   108→const safeParseEquip = (raw?: string | null): string[] => {
+   109→  if (!raw) return [];
+   110→  // Try JSON array first
+   111→  try {
+   112→    const v = JSON.parse(raw);
+   113→    if (Array.isArray(v)) return v.filter((x) => typeof x === 'string' && x.trim());
+   114→  } catch {
+   115→    // fallthrough — treat as comma-separated
+   116→  }
+   117→  if (typeof raw === 'string' && raw.trim()) {
+   118→    return raw
+   119→      .split(/[,;]+/)
+   120→      .map((s) => s.trim())
+   121→      .filter(Boolean);
+   122→  }
+   123→  return [];
+   124→};
+   125→
+   126→const toFormState = (f: Facility): FacilityFormState => ({
+   127→  name: f.name ?? '',
+   128→  category: f.category ?? 'COMPUTER_ROOM',
+   129→  capacity: String(f.capacity ?? 0),
+   130→  location: f.location ?? '',
+   131→  equipment: safeParseEquip(f.equipment).join(', '),
+   132→  operatingStart: f.operatingStart ?? '08:00',
+   133→  operatingEnd: f.operatingEnd ?? '22:00',
+   134→  colorCode: f.colorCode ?? '#0d9488',
+   135→});
+   136→
+   137→const categoryLabel = (cat: Category, lang: 'bm' | 'en') =>
+   138→  cat === 'COMPUTER_ROOM'
+   139→    ? lang === 'bm'
+   140→      ? 'Bilik Komputer'
+   141→      : 'Computer Room'
+   142→    : lang === 'bm'
+   143→      ? 'Dewan Kuliah'
+   144→      : 'Lecture Hall';
+   145→
+   146→// ===================== Main View =====================
+   147→export function FacilitiesView() {
+   148→  const { t, lang } = useT();
+   149→  const setView = useApp((s) => s.setView);
+   150→  const { isSuperAdmin, user } = useCurrentUser();
+   151→  const queryClient = useQueryClient();
+   152→
+   153→  const tr = (bm: string, en: string) => (lang === 'bm' ? bm : en);
+   154→
+   155→  // Filters
+   156→  const [search, setSearch] = useState('');
+   157→  const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+   158→  const [statusFilter, setStatusFilter] = useState<string>('ALL');
+   159→
+   160→  // Dialog state
+   161→  const [dialogOpen, setDialogOpen] = useState(false);
+   162→  const [editTarget, setEditTarget] = useState<Facility | null>(null);
+   163→  const [form, setForm] = useState<FacilityFormState>(DEFAULT_FORM);
+   164→
+   165→  // Status confirm (cycle to INACTIVE)
+   166→  const [statusCycleTarget, setStatusCycleTarget] = useState<Facility | null>(null);
+   167→
+   168→  // Delete confirm
+   169→  const [deleteTarget, setDeleteTarget] = useState<Facility | null>(null);
+   170→
+   171→  // ===================== Query =====================
+   172→  const { data: facilities, isLoading } = useQuery<Facility[]>({
+   173→    queryKey: ['facilities', 'admin'],
+   174→    queryFn: async () => {
+   175→      const r = await fetch('/api/facilities?includeInactive=true');
+   176→      if (!r.ok) throw new Error('fetch failed');
+   177→      const j = await r.json();
+   178→      return j.data as Facility[];
+   179→    },
+   180→  });
+   181→
+   182→  // ===================== Stats =====================
+   183→  const stats = useMemo(() => {
+   184→    const list = facilities ?? [];
+   185→    return {
+   186→      total: list.length,
+   187→      active: list.filter((f) => f.status === 'ACTIVE').length,
+   188→      maintenance: list.filter((f) => f.status === 'MAINTENANCE').length,
+   189→      inactive: list.filter((f) => f.status === 'INACTIVE').length,
+   190→      capacity: list.reduce((sum, f) => sum + (f.capacity || 0), 0),
+   191→    };
+   192→  }, [facilities]);
+   193→
+   194→  // ===================== Filtered list =====================
+   195→  const filtered = useMemo(() => {
+   196→    const list = facilities ?? [];
+   197→    const s = search.trim().toLowerCase();
+   198→    return list.filter((f) => {
+   199→      if (categoryFilter !== 'ALL' && f.category !== categoryFilter) return false;
+   200→      if (statusFilter !== 'ALL' && f.status !== statusFilter) return false;
+   201→      if (s) {
+   202→        const hay = [f.name, f.location ?? '', safeParseEquip(f.equipment).join(' ')].join(' ').toLowerCase();
+   203→        if (!hay.includes(s)) return false;
+   204→      }
+   205→      return true;
+   206→    });
+   207→  }, [facilities, search, categoryFilter, statusFilter]);
+   208→
+   209→  // ===================== Mutations =====================
+   210→  const createMutation = useMutation({
+   211→    mutationFn: async (data: FacilityFormState) => {
+   212→      const body = {
+   213→        name: data.name.trim(),
+   214→        category: data.category,
+   215→        capacity: parseInt(data.capacity, 10) || 0,
+   216→        location: data.location.trim() || undefined,
+   217→        equipment: data.equipment.trim() || undefined,
+   218→        operatingStart: data.operatingStart,
+   219→        operatingEnd: data.operatingEnd,
+   220→        colorCode: data.colorCode,
+   221→      };
+   222→      const r = await fetch('/api/facilities', {
+   223→        method: 'POST',
+   224→        headers: { 'Content-Type': 'application/json' },
+   225→        body: JSON.stringify(body),
+   226→      });
+   227→      const j = await r.json().catch(() => ({}));
+   228→      if (!r.ok) throw new Error(j?.message ?? 'create failed');
+   229→      return j.data as Facility;
+   230→    },
+   231→    onSuccess: () => {
+   232→      toast.success(tr('Kemudahan berjaya ditambah', 'Facility added successfully'));
+   233→      queryClient.invalidateQueries({ queryKey: ['facilities'] });
+   234→      setDialogOpen(false);
+   235→    },
+   236→    onError: (e: Error) => toast.error(e.message || tr('Gagal menambah kemudahan', 'Failed to add facility')),
+   237→  });
+   238→
+   239→  const updateMutation = useMutation({
+   240→    mutationFn: async ({ id, data }: { id: string; data: FacilityFormState }) => {
+   241→      const body = {
+   242→        name: data.name.trim(),
+   243→        capacity: parseInt(data.capacity, 10) || 0,
+   244→        location: data.location.trim() || undefined,
+   245→        equipment: data.equipment.trim() || undefined,
+   246→        operatingStart: data.operatingStart,
+   247→        operatingEnd: data.operatingEnd,
+   248→        colorCode: data.colorCode,
+   249→      };
+   250→      const r = await fetch(`/api/facilities/${id}`, {
+   251→        method: 'PATCH',
+   252→        headers: { 'Content-Type': 'application/json' },
+   253→        body: JSON.stringify(body),
+   254→      });
+   255→      const j = await r.json().catch(() => ({}));
+   256→      if (!r.ok) throw new Error(j?.message ?? 'update failed');
+   257→      return j.data as Facility;
+   258→    },
+   259→    onSuccess: () => {
+   260→      toast.success(tr('Kemudahan berjaya dikemas kini', 'Facility updated successfully'));
+   261→      queryClient.invalidateQueries({ queryKey: ['facilities'] });
+   262→      setDialogOpen(false);
+   263→    },
+   264→    onError: (e: Error) => toast.error(e.message || tr('Gagal mengemas kini', 'Failed to update')),
+   265→  });
+   266→
+   267→  const statusMutation = useMutation({
+   268→    mutationFn: async ({ id, status }: { id: string; status: FacilityStatus }) => {
+   269→      const r = await fetch(`/api/facilities/${id}`, {
+   270→        method: 'PATCH',
+   271→        headers: { 'Content-Type': 'application/json' },
+   272→        body: JSON.stringify({ status }),
+   273→      });
+   274→      const j = await r.json().catch(() => ({}));
+   275→      if (!r.ok) throw new Error(j?.message ?? 'status update failed');
+   276→      return j.data as Facility;
+   277→    },
+   278→    onSuccess: (_d, vars) => {
+   279→      const msg = vars.status === 'ACTIVE'
+   280→        ? tr('Status ditukar ke Aktif', 'Status changed to Active')
+   281→        : vars.status === 'MAINTENANCE'
+   282→          ? tr('Status ditukar ke Penyelenggaraan', 'Status changed to Maintenance')
+   283→          : tr('Kemudahan dinyahaktifkan', 'Facility deactivated');
+   284→      toast.success(msg);
+   285→      queryClient.invalidateQueries({ queryKey: ['facilities'] });
+   286→      setStatusCycleTarget(null);
+   287→    },
+   288→    onError: (e: Error) => toast.error(e.message || tr('Gagal menukar status', 'Failed to change status')),
+   289→  });
+   290→
+   291→  const deleteMutation = useMutation({
+   292→    mutationFn: async (id: string) => {
+   293→      const r = await fetch(`/api/facilities/${id}`, { method: 'DELETE' });
+   294→      const j = await r.json().catch(() => ({}));
+   295→      if (!r.ok) throw new Error(j?.message ?? 'delete failed');
+   296→      return j.data as Facility;
+   297→    },
+   298→    onSuccess: () => {
+   299→      toast.success(tr('Kemudahan berjaya dipadam', 'Facility deleted successfully'));
+   300→      queryClient.invalidateQueries({ queryKey: ['facilities'] });
+   301→      setDeleteTarget(null);
+   302→    },
+   303→    onError: (e: Error) => toast.error(e.message || tr('Gagal memadam', 'Failed to delete')),
+   304→  });
+   305→
+   306→  // ===================== Handlers =====================
+   307→  const openCreate = () => {
+   308→    setEditTarget(null);
+   309→    setForm(DEFAULT_FORM);
+   310→    setDialogOpen(true);
+   311→  };
+   312→
+   313→  const openEdit = (f: Facility) => {
+   314→    setEditTarget(f);
+   315→    setForm(toFormState(f));
+   316→    setDialogOpen(true);
+   317→  };
+   318→
+   319→  const submitForm = () => {
+   320→    if (!form.name.trim()) {
+   321→      toast.error(tr('Nama kemudahan diperlukan', 'Facility name is required'));
+   322→      return;
+   323→    }
+   324→    const cap = parseInt(form.capacity, 10);
+   325→    if (!cap || cap < 1) {
+   326→      toast.error(tr('Kapasiti mesti sekurang-kurangnya 1', 'Capacity must be at least 1'));
+   327→      return;
+   328→    }
+   329→    if (editTarget) {
+   330→      updateMutation.mutate({ id: editTarget.id, data: form });
+   331→    } else {
+   332→      createMutation.mutate(form);
+   333→    }
+   334→  };
+   335→
+   336→  const cycleStatus = (f: Facility) => {
+   337→    // ACTIVE → MAINTENANCE → INACTIVE → ACTIVE
+   338→    const next: FacilityStatus =
+   339→      f.status === 'ACTIVE' ? 'MAINTENANCE' : f.status === 'MAINTENANCE' ? 'INACTIVE' : 'ACTIVE';
+   340→    if (next === 'INACTIVE') {
+   341→      // require confirmation
+   342→      setStatusCycleTarget(f);
+   343→    } else {
+   344→      statusMutation.mutate({ id: f.id, status: next });
+   345→    }
+   346→  };
+   347→
+   348→  // ===================== Render =====================
+   349→  return (
+   350→    <motion.div
+   351→      initial={{ opacity: 0, y: 10 }}
+   352→      animate={{ opacity: 1, y: 0 }}
+   353→      transition={{ duration: 0.3 }}
+   354→      className="space-y-4"
+   355→    >
+   356→      {/* Header */}
+   357→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   358→        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-teal-500/20 blur-3xl pointer-events-none" />
+   359→        <div className="absolute -bottom-10 -left-10 w-40 h-40 rounded-full bg-amber-500/15 blur-3xl pointer-events-none" />
+   360→        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+   361→          <div className="flex items-start gap-3">
+   362→            <div className="hidden sm:grid place-items-center w-12 h-12 rounded-xl gradient-primary text-white shadow-lg shrink-0">
+   363→              <Building2 className="w-6 h-6" />
+   364→            </div>
+   365→            <div>
+   366→              <h1 className="text-2xl lg:text-3xl font-bold gradient-text leading-tight">
+   367→                {t('nav_facilities')}
+   368→              </h1>
+   369→              <p className="text-sm text-muted-foreground mt-1">
+   370→                {tr('Tambah, kemas kini dan urus kemudahan bilik komputer & dewan kuliah', 'Add, update and manage computer room & lecture hall facilities')}
+   371→              </p>
+   372→            </div>
+   373→          </div>
+   374→          <div className="flex items-center gap-2 flex-wrap">
+   375→            <Button variant="outline" size="sm" onClick={() => setView('dashboard')} className="glass-input">
+   376→              {tr('Kembali', 'Back')}
+   377→            </Button>
+   378→            {isSuperAdmin && (
+   379→              <Button
+   380→                onClick={openCreate}
+   381→                className="gradient-primary text-white shadow-md hover:shadow-lg transition-shadow"
+   382→                size="sm"
+   383→              >
+   384→                <PlusCircle className="w-4 h-4 mr-2" />
+   385→                {tr('Tambah Kemudahan', 'Add Facility')}
+   386→              </Button>
+   387→            )}
+   388→          </div>
+   389→        </div>
+   390→      </GlassCard>
+   391→
+   392→      {/* Access warning for non-super-admin */}
+   393→      {!isSuperAdmin && (
+   394→        <GlassCard className="p-4 border-amber-300/60 bg-amber-50/60">
+   395→          <div className="flex items-start gap-3 text-amber-800">
+   396→            <ShieldCheck className="w-5 h-5 mt-0.5 shrink-0" />
+   397→            <div className="text-sm">
+   398→              <p className="font-semibold">{tr('Akses Terhad', 'Restricted Access')}</p>
+   399→              <p className="text-amber-700/90">
+   400→                {tr('Hanya Pentadbir Sistem boleh mengubah kemudahan. Anda hanya boleh melihat.', 'Only System Admins can modify facilities. You can view only.')}
+   401→              </p>
+   402→            </div>
+   403→          </div>
+   404→        </GlassCard>
+   405→      )}
+   406→
+   407→      {/* Stats */}
+   408→      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+   409→        <StatTile
+   410→          icon={<Building2 className="w-5 h-5" />}
+   411→          label={tr('Jumlah Kemudahan', 'Total Facilities')}
+   412→          value={stats.total}
+   413→          tone="teal"
+   414→          loading={isLoading}
+   415→        />
+   416→        <StatTile
+   417→          icon={<ShieldCheck className="w-5 h-5" />}
+   418→          label={t('status_ACTIVE')}
+   419→          value={stats.active}
+   420→          tone="emerald"
+   421→          loading={isLoading}
+   422→        />
+   423→        <StatTile
+   424→          icon={<Wrench className="w-5 h-5" />}
+   425→          label={t('status_MAINTENANCE')}
+   426→          value={stats.maintenance}
+   427→          tone="amber"
+   428→          loading={isLoading}
+   429→        />
+   430→        <StatTile
+   431→          icon={<Building2 className="w-5 h-5" />}
+   432→          label={tr('Tidak Aktif', 'Inactive')}
+   433→          value={stats.inactive}
+   434→          tone="zinc"
+   435→          loading={isLoading}
+   436→        />
+   437→        <StatTile
+   438→          icon={<Users2 className="w-5 h-5" />}
+   439→          label={tr('Jumlah Kapasiti', 'Total Capacity')}
+   440→          value={stats.capacity}
+   441→          tone="teal"
+   442→          loading={isLoading}
+   443→        />
+   444→      </div>
+   445→
+   446→      {/* Filters */}
+   447→      <GlassCard className="p-4">
+   448→        <div className="grid gap-3 md:grid-cols-[1fr_auto_auto] md:items-end">
+   449→          <div className="space-y-1.5">
+   450→            <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+   451→              <Search className="w-3.5 h-3.5" />
+   452→              {t('search')}
+   453→            </Label>
+   454→            <Input
+   455→              value={search}
+   456→              onChange={(e) => setSearch(e.target.value)}
+   457→              placeholder={tr('Cari nama, lokasi, peralatan...', 'Search name, location, equipment...')}
+   458→              className="glass-input"
+   459→            />
+   460→          </div>
+   461→          <div className="space-y-1.5">
+   462→            <Label className="text-xs text-muted-foreground">{tr('Kategori', 'Category')}</Label>
+   463→            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+   464→              <SelectTrigger className="w-full md:w-48 glass-input">
+   465→                <SelectValue />
+   466→              </SelectTrigger>
+   467→              <SelectContent>
+   468→                <SelectItem value="ALL">{tr('Semua Kategori', 'All Categories')}</SelectItem>
+   469→                <SelectItem value="COMPUTER_ROOM">{tr('Bilik Komputer', 'Computer Room')}</SelectItem>
+   470→                <SelectItem value="LECTURE_HALL">{tr('Dewan Kuliah', 'Lecture Hall')}</SelectItem>
+   471→              </SelectContent>
+   472→            </Select>
+   473→          </div>
+   474→          <div className="space-y-1.5">
+   475→            <Label className="text-xs text-muted-foreground">{tr('Status', 'Status')}</Label>
+   476→            <Select value={statusFilter} onValueChange={setStatusFilter}>
+   477→              <SelectTrigger className="w-full md:w-44 glass-input">
+   478→                <SelectValue />
+   479→              </SelectTrigger>
+   480→              <SelectContent>
+   481→                <SelectItem value="ALL">{tr('Semua Status', 'All Status')}</SelectItem>
+   482→                <SelectItem value="ACTIVE">{t('status_ACTIVE')}</SelectItem>
+   483→                <SelectItem value="MAINTENANCE">{t('status_MAINTENANCE')}</SelectItem>
+   484→                <SelectItem value="INACTIVE">{tr('Tidak Aktif', 'Inactive')}</SelectItem>
+   485→              </SelectContent>
+   486→            </Select>
+   487→          </div>
+   488→        </div>
+   489→      </GlassCard>
+   490→
+   491→      {/* Table */}
+   492→      <GlassCard className="p-0 overflow-hidden">
+   493→        <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between">
+   494→          <h2 className="text-sm font-semibold flex items-center gap-2">
+   495→            <Building2 className="w-4 h-4 text-teal-600" />
+   496→            {tr('Senarai Kemudahan', 'Facility List')}
+   497→          </h2>
+   498→          <span className="text-xs text-muted-foreground">
+   499→            {filtered.length} {tr('rekod', 'records')}
+   500→          </span>
+   501→        </div>
+   502→
+   503→        {isLoading ? (
+   504→          <div className="p-4 space-y-3">
+   505→            {Array.from({ length: 5 }).map((_, i) => (
+   506→              <Skeleton key={i} className="h-14 w-full rounded-lg" />
+   507→            ))}
+   508→          </div>
+   509→        ) : filtered.length === 0 ? (
+   510→          <div className="p-10 text-center">
+   511→            <Building2 className="w-12 h-12 mx-auto text-muted-foreground/40 mb-3" />
+   512→            <p className="text-sm text-muted-foreground">{t('no_data')}</p>
+   513→            <p className="text-xs text-muted-foreground/70 mt-1">
+   514→              {tr('Tiada kemudahan padanan penapis.', 'No facilities match the filter.')}
+   515→            </p>
+   516→          </div>
+   517→        ) : (
+   518→          <div className="overflow-x-auto scroll-area-thin">
+   519→            <Table>
+   520→              <TableHeader>
+   521→                <TableRow className="bg-muted/30 hover:bg-muted/30">
+   522→                  <TableHead className="pl-4">{t('name')}</TableHead>
+   523→                  <TableHead>{tr('Kategori', 'Category')}</TableHead>
+   524→                  <TableHead className="text-center">{t('form_participants')}</TableHead>
+   525→                  <TableHead>{tr('Lokasi', 'Location')}</TableHead>
+   526→                  <TableHead>{tr('Waktu Operasi', 'Operating Hours')}</TableHead>
+   527→                  <TableHead>{tr('Peralatan', 'Equipment')}</TableHead>
+   528→                  <TableHead>{tr('Status', 'Status')}</TableHead>
+   529→                  <TableHead className="text-right pr-4">{t('actions')}</TableHead>
+   530→                </TableRow>
+   531→              </TableHeader>
+   532→              <TableBody>
+   533→                {filtered.map((f) => {
+   534→                  const equip = safeParseEquip(f.equipment);
+   535→                  return (
+   536→                    <TableRow key={f.id} className="hover:bg-teal-50/40 dark:hover:bg-teal-900/10">
+   537→                      <TableCell className="pl-4">
+   538→                        <div className="flex items-center gap-2.5">
+   539→                          <span
+   540→                            className="inline-block w-3 h-3 rounded-full ring-2 ring-white shadow-sm shrink-0"
+   541→                            style={{ backgroundColor: f.colorCode || '#0d9488' }}
+   542→                            aria-hidden
+   543→                          />
+   544→                          <div>
+   545→                            <p className="font-medium text-sm leading-tight">{f.name}</p>
+   546→                            <p className="text-xs text-muted-foreground mt-0.5 lg:hidden">
+   547→                              {categoryLabel(f.category, lang)} · {f.capacity} pax
+   548→                            </p>
+   549→                          </div>
+   550→                        </div>
+   551→                      </TableCell>
+   552→                      <TableCell>
+   553→                        <Badge
+   554→                          variant="outline"
+   555→                          className={cn(
+   556→                            'font-medium',
+   557→                            f.category === 'COMPUTER_ROOM'
+   558→                              ? 'bg-teal-50/70 text-teal-700 border-teal-300/60'
+   559→                              : 'bg-amber-50/70 text-amber-700 border-amber-300/60',
+   560→                          )}
+   561→                        >
+   562→                          {categoryLabel(f.category, lang)}
+   563→                        </Badge>
+   564→                      </TableCell>
+   565→                      <TableCell className="text-center">
+   566→                        <span className="inline-flex items-center gap-1 text-sm font-medium">
+   567→                          <Users className="w-3.5 h-3.5 text-muted-foreground" />
+   568→                          {f.capacity}
+   569→                        </span>
+   570→                      </TableCell>
+   571→                      <TableCell>
+   572→                        {f.location ? (
+   573→                          <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+   574→                            <MapPin className="w-3.5 h-3.5" />
+   575→                            <span className="max-w-[180px] truncate">{f.location}</span>
+   576→                          </span>
+   577→                        ) : (
+   578→                          <span className="text-xs text-muted-foreground/60">—</span>
+   579→                        )}
+   580→                      </TableCell>
+   581→                      <TableCell>
+   582→                        <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
+   583→                          <Clock className="w-3.5 h-3.5" />
+   584→                          {f.operatingStart ?? '08:00'}–{f.operatingEnd ?? '22:00'}
+   585→                        </span>
+   586→                      </TableCell>
+   587→                      <TableCell>
+   588→                        {equip.length === 0 ? (
+   589→                          <span className="text-xs text-muted-foreground/60">—</span>
+   590→                        ) : (
+   591→                          <div className="flex flex-wrap gap-1 max-w-[220px]">
+   592→                            {equip.slice(0, 3).map((e, i) => (
+   593→                              <span
+   594→                                key={`${f.id}-eq-${i}`}
+   595→                                className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50/80 text-emerald-700 border border-emerald-200/60"
+   596→                              >
+   597→                                {e}
+   598→                              </span>
+   599→                            ))}
+   600→                            {equip.length > 3 && (
+   601→                              <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+   602→                                +{equip.length - 3}
+   603→                              </span>
+   604→                            )}
+   605→                          </div>
+   606→                        )}
+   607→                      </TableCell>
+   608→                      <TableCell>
+   609→                        <StatusBadge status={f.status} />
+   610→                      </TableCell>
+   611→                      <TableCell className="text-right pr-4">
+   612→                        <div className="inline-flex items-center gap-1">
+   613→                          <Button
+   614→                            variant="outline"
+   615→                            size="sm"
+   616→                            onClick={() => cycleStatus(f)}
+   617→                            disabled={!isSuperAdmin}
+   618→                            className="glass-input h-8 px-2 text-xs"
+   619→                            title={tr('Tukar Status', 'Change Status')}
+   620→                          >
+   621→                            <Wrench className="w-3.5 h-3.5 mr-1" />
+   622→                            <span className="hidden md:inline">{tr('Tukar Status', 'Change Status')}</span>
+   623→                          </Button>
+   624→                          <Button
+   625→                            variant="outline"
+   626→                            size="sm"
+   627→                            onClick={() => openEdit(f)}
+   628→                            disabled={!isSuperAdmin}
+   629→                            className="glass-input h-8 w-8 p-0"
+   630→                            title={t('edit')}
+   631→                            aria-label={t('edit')}
+   632→                          >
+   633→                            <Pencil className="w-3.5 h-3.5" />
+   634→                          </Button>
+   635→                          <Button
+   636→                            variant="outline"
+   637→                            size="sm"
+   638→                            onClick={() => setDeleteTarget(f)}
+   639→                            disabled={!isSuperAdmin}
+   640→                            className="h-8 w-8 p-0 text-rose-600 hover:bg-rose-50 hover:text-rose-700 border-rose-200/60"
+   641→                            title={t('delete')}
+   642→                            aria-label={t('delete')}
+   643→                          >
+   644→                            <Trash2 className="w-3.5 h-3.5" />
+   645→                          </Button>
+   646→                        </div>
+   647→                      </TableCell>
+   648→                    </TableRow>
+   649→                  );
+   650→                })}
+   651→              </TableBody>
+   652→            </Table>
+   653→          </div>
+   654→        )}
+   655→      </GlassCard>
+   656→
+   657→      {/* Create/Edit Dialog */}
+   658→      <Dialog open={dialogOpen} onOpenChange={(o) => setDialogOpen(o)}>
+   659→        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto scroll-area-thin">
+   660→          <DialogHeader>
+   661→            <DialogTitle className="flex items-center gap-2">
+   662→              <Building2 className="w-5 h-5 text-teal-600" />
+   663→              {editTarget
+   664→                ? tr('Kemas Kini Kemudahan', 'Edit Facility')
+   665→                : tr('Tambah Kemudahan Baharu', 'Add New Facility')}
+   666→            </DialogTitle>
+   667→            <DialogDescription>
+   668→              {editTarget
+   669→                ? tr('Kemas kini maklumat kemudahan ini.', 'Update this facility information.')
+   670→                : tr('Isi butiran kemudahan baru.', 'Fill in the new facility details.')}
+   671→            </DialogDescription>
+   672→          </DialogHeader>
+   673→
+   674→          <div className="grid gap-4 py-2">
+   675→            <div className="grid gap-2">
+   676→              <Label htmlFor="f-name">{t('name')} *</Label>
+   677→              <Input
+   678→                id="f-name"
+   679→                value={form.name}
+   680→                onChange={(e) => setForm({ ...form, name: e.target.value })}
+   681→                placeholder={tr('cth. Bilik Komputer 1', 'e.g. Computer Room 1')}
+   682→                className="glass-input"
+   683→              />
+   684→            </div>
+   685→
+   686→            <div className="grid grid-cols-2 gap-4">
+   687→              <div className="grid gap-2">
+   688→                <Label>{tr('Kategori', 'Category')} *</Label>
+   689→                <Select
+   690→                  value={form.category}
+   691→                  onValueChange={(v) => setForm({ ...form, category: v as Category })}
+   692→                  disabled={!!editTarget}
+   693→                >
+   694→                  <SelectTrigger className="w-full glass-input">
+   695→                    <SelectValue />
+   696→                  </SelectTrigger>
+   697→                  <SelectContent>
+   698→                    <SelectItem value="COMPUTER_ROOM">{tr('Bilik Komputer', 'Computer Room')}</SelectItem>
+   699→                    <SelectItem value="LECTURE_HALL">{tr('Dewan Kuliah', 'Lecture Hall')}</SelectItem>
+   700→                  </SelectContent>
+   701→                </Select>
+   702→                {editTarget && (
+   703→                  <p className="text-xs text-muted-foreground">
+   704→                    {tr('Kategori tidak boleh diubah selepas dibuat.', 'Category cannot be changed after creation.')}
+   705→                  </p>
+   706→                )}
+   707→              </div>
+   708→              <div className="grid gap-2">
+   709→                <Label htmlFor="f-cap">{tr('Kapasiti', 'Capacity')} *</Label>
+   710→                <Input
+   711→                  id="f-cap"
+   712→                  type="number"
+   713→                  min={1}
+   714→                  max={1000}
+   715→                  value={form.capacity}
+   716→                  onChange={(e) => setForm({ ...form, capacity: e.target.value })}
+   717→                  className="glass-input"
+   718→                />
+   719→              </div>
+   720→            </div>
+   721→
+   722→            <div className="grid gap-2">
+   723→              <Label htmlFor="f-loc">{tr('Lokasi', 'Location')}</Label>
+   724→              <Input
+   725→                id="f-loc"
+   726→                value={form.location}
+   727→                onChange={(e) => setForm({ ...form, location: e.target.value })}
+   728→                placeholder={tr('cth. Aras 2, Blok A', 'e.g. Level 2, Block A')}
+   729→                className="glass-input"
+   730→              />
+   731→            </div>
+   732→
+   733→            <div className="grid gap-2">
+   734→              <Label htmlFor="f-equip">{tr('Peralatan', 'Equipment')}</Label>
+   735→              <Textarea
+   736→                id="f-equip"
+   737→                value={form.equipment}
+   738→                onChange={(e) => setForm({ ...form, equipment: e.target.value })}
+   739→                placeholder={tr('Pisahkan dengan koma: LCD Projector, Whiteboard, AC, WiFi', 'Separate with commas: LCD Projector, Whiteboard, AC, WiFi')}
+   740→                rows={2}
+   741→                className="glass-input resize-none"
+   742→              />
+   743→              {form.equipment.trim() && (
+   744→                <div className="flex flex-wrap gap-1 mt-1">
+   745→                  {form.equipment
+   746→                    .split(/[,;]+/)
+   747→                    .map((s) => s.trim())
+   748→                    .filter(Boolean)
+   749→                    .map((e, i) => (
+   750→                      <span
+   751→                        key={i}
+   752→                        className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-50/80 text-emerald-700 border border-emerald-200/60"
+   753→                      >
+   754→                        {e}
+   755→                      </span>
+   756→                    ))}
+   757→                </div>
+   758→              )}
+   759→            </div>
+   760→
+   761→            <div className="grid grid-cols-2 gap-4">
+   762→              <div className="grid gap-2">
+   763→                <Label htmlFor="f-start">{tr('Waktu Mula', 'Start Time')}</Label>
+   764→                <Input
+   765→                  id="f-start"
+   766→                  type="time"
+   767→                  value={form.operatingStart}
+   768→                  onChange={(e) => setForm({ ...form, operatingStart: e.target.value })}
+   769→                  className="glass-input"
+   770→                />
+   771→              </div>
+   772→              <div className="grid gap-2">
+   773→                <Label htmlFor="f-end">{tr('Waktu Tamat', 'End Time')}</Label>
+   774→                <Input
+   775→                  id="f-end"
+   776→                  type="time"
+   777→                  value={form.operatingEnd}
+   778→                  onChange={(e) => setForm({ ...form, operatingEnd: e.target.value })}
+   779→                  className="glass-input"
+   780→                />
+   781→              </div>
+   782→            </div>
+   783→
+   784→            <div className="grid gap-2">
+   785→              <Label htmlFor="f-color">{tr('Warna Penanda', 'Color Marker')}</Label>
+   786→              <div className="flex items-center gap-3">
+   787→                <input
+   788→                  id="f-color"
+   789→                  type="color"
+   790→                  value={form.colorCode}
+   791→                  onChange={(e) => setForm({ ...form, colorCode: e.target.value })}
+   792→                  className="w-12 h-10 rounded-md border border-border bg-transparent cursor-pointer p-1"
+   793→                  aria-label={tr('Pemilih warna', 'Color picker')}
+   794→                />
+   795→                <Input
+   796→                  value={form.colorCode}
+   797→                  onChange={(e) => setForm({ ...form, colorCode: e.target.value })}
+   798→                  className="glass-input w-32 font-mono text-sm"
+   799→                />
+   800→                <div
+   801→                  className="ml-2 inline-flex items-center gap-2 text-xs text-muted-foreground"
+   802→                >
+   803→                  <span
+   804→                    className="inline-block w-4 h-4 rounded-full ring-2 ring-white shadow"
+   805→                    style={{ backgroundColor: form.colorCode }}
+   806→                    aria-hidden
+   807→                  />
+   808→                  {tr('Pratonton', 'Preview')}
+   809→                </div>
+   810→              </div>
+   811→            </div>
+   812→          </div>
+   813→
+   814→          <DialogFooter className="gap-2">
+   815→            <Button variant="outline" onClick={() => setDialogOpen(false)} className="glass-input">
+   816→              {t('close')}
+   817→            </Button>
+   818→            <Button
+   819→              onClick={submitForm}
+   820→              disabled={createMutation.isPending || updateMutation.isPending}
+   821→              className="gradient-primary text-white"
+   822→            >
+   823→              {(createMutation.isPending || updateMutation.isPending) && (
+   824→                <span className="mr-2 h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />
+   825→              )}
+   826→              {editTarget ? t('save') : tr('Tambah', 'Add')}
+   827→            </Button>
+   828→          </DialogFooter>
+   829→        </DialogContent>
+   830→      </Dialog>
+   831→
+   832→      {/* Status Cycle (to INACTIVE) Confirmation */}
+   833→      <AlertDialog
+   834→        open={!!statusCycleTarget}
+   835→        onOpenChange={(o) => !o && setStatusCycleTarget(null)}
+   836→      >
+   837→        <AlertDialogContent>
+   838→          <AlertDialogHeader>
+   839→            <AlertDialogTitle className="flex items-center gap-2">
+   840→              <Wrench className="w-5 h-5 text-amber-600" />
+   841→              {tr('Nyahaktifkan Kemudahan', 'Deactivate Facility')}
+   842→            </AlertDialogTitle>
+   843→            <AlertDialogDescription>
+   844→              {tr(
+   845→                `Adakah anda pasti mahu menetapkan "${statusCycleTarget?.name ?? ''}" ke status Tidak Aktif?`,
+   846→                `Are you sure you want to set "${statusCycleTarget?.name ?? ''}" to Inactive status?`,
+   847→              )}
+   848→              <span className="block mt-2 text-amber-700">
+   849→                {tr('Kemudahan tidak akan tersedia untuk tempahan baharu.', 'The facility will be unavailable for new bookings.')}
+   850→              </span>
+   851→            </AlertDialogDescription>
+   852→          </AlertDialogHeader>
+   853→          <AlertDialogFooter>
+   854→            <AlertDialogCancel>{t('no')}</AlertDialogCancel>
+   855→            <AlertDialogAction
+   856→              onClick={() => {
+   857→                if (statusCycleTarget) {
+   858→                  statusMutation.mutate({ id: statusCycleTarget.id, status: 'INACTIVE' });
+   859→                }
+   860→              }}
+   861→              disabled={statusMutation.isPending}
+   862→              className="bg-amber-600 hover:bg-amber-700 text-white"
+   863→            >
+   864→              {statusMutation.isPending ? t('loading') : t('yes')}
+   865→            </AlertDialogAction>
+   866→          </AlertDialogFooter>
+   867→        </AlertDialogContent>
+   868→      </AlertDialog>
+   869→
+   870→      {/* Delete Confirmation */}
+   871→      <AlertDialog
+   872→        open={!!deleteTarget}
+   873→        onOpenChange={(o) => !o && setDeleteTarget(null)}
+   874→      >
+   875→        <AlertDialogContent>
+   876→          <AlertDialogHeader>
+   877→            <AlertDialogTitle className="flex items-center gap-2 text-rose-700">
+   878→              <Trash2 className="w-5 h-5" />
+   879→              {tr('Padam Kemudahan', 'Delete Facility')}
+   880→            </AlertDialogTitle>
+   881→            <AlertDialogDescription>
+   882→              {tr(
+   883→                `Adakah anda pasti mahu memadam "${deleteTarget?.name ?? ''}"?`,
+   884→                `Are you sure you want to delete "${deleteTarget?.name ?? ''}"?`,
+   885→              )}
+   886→              <span className="block mt-2 text-rose-700">
+   887→                {tr(
+   888→                  'Tindakan ini akan menetapkan status kemudahan kepada Tidak Aktif (padam lembut).',
+   889→                  'This action sets the facility status to Inactive (soft delete).',
+   890→                )}
+   891→              </span>
+   892→            </AlertDialogDescription>
+   893→          </AlertDialogHeader>
+   894→          <AlertDialogFooter>
+   895→            <AlertDialogCancel>{t('no')}</AlertDialogCancel>
+   896→            <AlertDialogAction
+   897→              onClick={() => {
+   898→                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+   899→              }}
+   900→              disabled={deleteMutation.isPending}
+   901→              className="bg-rose-600 hover:bg-rose-700 text-white"
+   902→            >
+   903→              {deleteMutation.isPending ? t('loading') : t('delete')}
+   904→            </AlertDialogAction>
+   905→          </AlertDialogFooter>
+   906→        </AlertDialogContent>
+   907→      </AlertDialog>
+   908→
+   909→      {/* Footer info */}
+   910→      {user && (
+   911→        <p className="text-xs text-muted-foreground text-center pt-2">
+   912→          {tr('Log masuk sebagai', 'Logged in as')}{' '}
+   913→          <span className="font-medium text-foreground/80">{user.name}</span>{' '}
+   914→          ·{' '}
+   915→          {user.role === 'SUPER_ADMIN'
+   916→            ? t('role_SUPER_ADMIN')
+   917→            : user.role === 'FACILITY_ADMIN'
+   918→              ? t('role_FACILITY_ADMIN')
+   919→              : t('role_USER')}
+   920→        </p>
+   921→      )}
+   922→    </motion.div>
+   923→  );
+   924→}
+   925→
+   926→// ===================== Stat Tile =====================
+   927→function StatTile({
+   928→  icon,
+   929→  label,
+   930→  value,
+   931→  tone,
+   932→  loading,
+   933→}: {
+   934→  icon: React.ReactNode;
+   935→  label: string;
+   936→  value: number;
+   937→  tone: 'teal' | 'emerald' | 'amber' | 'zinc';
+   938→  loading?: boolean;
+   939→}) {
+   940→  const toneClasses: Record<string, string> = {
+   941→    teal: 'bg-teal-500/15 text-teal-700 dark:text-teal-300',
+   942→    emerald: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+   943→    amber: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+   944→    zinc: 'bg-zinc-500/15 text-zinc-700 dark:text-zinc-300',
+   945→  };
+   946→  return (
+   947→    <GlassCard className="p-4 flex items-center gap-3">
+   948→      <div className={cn('grid place-items-center w-10 h-10 rounded-xl shrink-0', toneClasses[tone])}>
+   949→        {icon}
+   950→      </div>
+   951→      <div className="min-w-0">
+   952→        <p className="text-[11px] text-muted-foreground truncate uppercase tracking-wide">{label}</p>
+   953→        {loading ? (
+   954→          <Skeleton className="h-6 w-12 mt-1" />
+   955→        ) : (
+   956→          <p className="text-xl font-bold leading-tight">{value.toLocaleString()}</p>
+   957→        )}
+   958→      </div>
+   959→    </GlassCard>
+   960→  );
+   961→}
+   962→
+   963→export default FacilitiesView;
+   964→

@@ -1,0 +1,1011 @@
+     1→'use client';
+     2→
+     3→import { useState, useMemo } from 'react';
+     4→import { useT } from '@/hooks/use-t';
+     5→import { useApp } from '@/lib/store';
+     6→import { useCurrentUser } from '@/hooks/use-current-user';
+     7→import { GlassCard } from '@/components/glass-card';
+     8→import { StatusBadge } from '@/components/status-badge';
+     9→import { Button } from '@/components/ui/button';
+    10→import { Input } from '@/components/ui/input';
+    11→import { Textarea } from '@/components/ui/textarea';
+    12→import { Label } from '@/components/ui/label';
+    13→import {
+    14→  Dialog,
+    15→  DialogContent,
+    16→  DialogHeader,
+    17→  DialogTitle,
+    18→  DialogFooter,
+    19→} from '@/components/ui/dialog';
+    20→import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+    21→import { Skeleton } from '@/components/ui/skeleton';
+    22→import { Alert, AlertDescription } from '@/components/ui/alert';
+    23→import {
+    24→  CheckCircle2,
+    25→  XCircle,
+    26→  AlertCircle,
+    27→  Clock,
+    28→  MapPin,
+    29→  Users,
+    30→  Calendar,
+    31→  Search,
+    32→  User,
+    33→  Building2,
+    34→  AlertTriangle,
+    35→  ShieldAlert,
+    36→  MessageSquare,
+    37→  Inbox,
+    38→} from 'lucide-react';
+    39→import { motion } from 'framer-motion';
+    40→import { toast } from 'sonner';
+    41→import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+    42→import { cn } from '@/lib/utils';
+    43→
+    44→// ===================== Types =====================
+    45→interface Facility {
+    46→  id: string;
+    47→  name: string;
+    48→  category: string;
+    49→  colorCode: string;
+    50→  capacity: number;
+    51→  location?: string | null;
+    52→}
+    53→
+    54→interface Applicant {
+    55→  id: string;
+    56→  name: string;
+    57→  email: string;
+    58→  department?: string | null;
+    59→  phone?: string | null;
+    60→}
+    61→
+    62→interface Booking {
+    63→  id: string;
+    64→  bookingRef: string;
+    65→  status: string;
+    66→  eventDate: string;
+    67→  startTime: string;
+    68→  endTime: string;
+    69→  purpose: string;
+    70→  programName?: string | null;
+    71→  participantCount: number;
+    72→  notes?: string | null;
+    73→  equipmentNeeded?: string | null;
+    74→  requiresMultiLevel: boolean;
+    75→  createdAt: string;
+    76→  facility: Facility;
+    77→  user: Applicant;
+    78→}
+    79→
+    80→interface ConflictBooking {
+    81→  id: string;
+    82→  bookingRef: string;
+    83→  startTime: string;
+    84→  endTime: string;
+    85→  status: string;
+    86→  programName: string | null;
+    87→}
+    88→
+    89→interface ConflictResult {
+    90→  hasConflict: boolean;
+    91→  conflictingBookings: ConflictBooking[];
+    92→}
+    93→
+    94→type ActionKind = 'APPROVE' | 'REJECT' | 'REQUEST_INFO';
+    95→
+    96→// ===================== Helpers =====================
+    97→const safeParseEquip = (raw?: string | null): string[] => {
+    98→  if (!raw) return [];
+    99→  try {
+   100→    const v = JSON.parse(raw);
+   101→    if (Array.isArray(v)) return v.filter((x) => typeof x === 'string');
+   102→    if (typeof v === 'string') return [v];
+   103→  } catch {
+   104→    return raw.split(',').map((s) => s.trim()).filter(Boolean);
+   105→  }
+   106→  return [];
+   107→};
+   108→
+   109→const fmtDate = (iso: string, lang: 'bm' | 'en') =>
+   110→  new Date(iso).toLocaleDateString(lang === 'bm' ? 'ms-MY' : 'en-GB', {
+   111→    weekday: 'short',
+   112→    day: 'numeric',
+   113→    month: 'short',
+   114→    year: 'numeric',
+   115→  });
+   116→
+   117→const fmtDateTime = (iso: string, lang: 'bm' | 'en') =>
+   118→  new Date(iso).toLocaleString(lang === 'bm' ? 'ms-MY' : 'en-GB', {
+   119→    day: 'numeric',
+   120→    month: 'short',
+   121→    year: 'numeric',
+   122→    hour: '2-digit',
+   123→    minute: '2-digit',
+   124→  });
+   125→
+   126→const isSameDay = (iso: string, ref: Date) => {
+   127→  const d = new Date(iso);
+   128→  return (
+   129→    d.getFullYear() === ref.getFullYear() &&
+   130→    d.getMonth() === ref.getMonth() &&
+   131→    d.getDate() === ref.getDate()
+   132→  );
+   133→};
+   134→
+   135→// ===================== Main View =====================
+   136→export function ApprovalsView() {
+   137→  const { t, lang } = useT();
+   138→  useApp(); // ensure store ready / language reactive
+   139→  const { user } = useCurrentUser();
+   140→  const qc = useQueryClient();
+   141→
+   142→  const [tab, setTab] = useState<'PENDING' | 'NEEDS_INFO'>('PENDING');
+   143→  const [search, setSearch] = useState('');
+   144→  const [selectedId, setSelectedId] = useState<string | null>(null);
+   145→  const [dialogAction, setDialogAction] = useState<ActionKind | null>(null);
+   146→  const [comment, setComment] = useState('');
+   147→
+   148→  // ---- Fetch pending / needs-info approvals ----
+   149→  const { data: bookings, isLoading } = useQuery<Booking[]>({
+   150→    queryKey: ['approvals', tab],
+   151→    queryFn: async () => {
+   152→      const r = await fetch(`/api/approvals?status=${tab}`, { credentials: 'include' });
+   153→      if (!r.ok) throw new Error('failed');
+   154→      const j = await r.json();
+   155→      return j.data as Booking[];
+   156→    },
+   157→    enabled: !!user,
+   158→  });
+   159→
+   160→  // ---- Filter list (search by bookingRef / applicant / facility) ----
+   161→  const filtered = useMemo(() => {
+   162→    if (!bookings) return [];
+   163→    const s = search.trim().toLowerCase();
+   164→    if (!s) return bookings;
+   165→    return bookings.filter((b) =>
+   166→      b.bookingRef.toLowerCase().includes(s) ||
+   167→      b.user.name.toLowerCase().includes(s) ||
+   168→      b.facility.name.toLowerCase().includes(s),
+   169→    );
+   170→  }, [bookings, search]);
+   171→
+   172→  // ---- Stats ----
+   173→  const stats = useMemo(() => {
+   174→    const pending = bookings?.filter((b) => b.status === 'PENDING') ?? [];
+   175→    const today = new Date();
+   176→    const todayPending = pending.filter((b) => isSameDay(b.eventDate, today)).length;
+   177→    const multiLevel = pending.filter((b) => b.requiresMultiLevel).length;
+   178→    return {
+   179→      totalPending: pending.length || (tab === 'PENDING' ? bookings?.length ?? 0 : 0),
+   180→      todayPending,
+   181→      multiLevel,
+   182→    };
+   183→  }, [bookings, tab]);
+   184→
+   185→  // ---- Selected booking object (derived; falls back to first in list) ----
+   186→  const selected = useMemo(
+   187→    () => filtered.find((b) => b.id === selectedId) ?? filtered[0] ?? null,
+   188→    [filtered, selectedId],
+   189→  );
+   190→
+   191→  // Track the effective selected id for downstream keys/queries
+   192→  const effectiveSelectedId = selected?.id ?? null;
+   193→
+   194→  // ---- Conflict check for selected booking ----
+   195→  const { data: conflict, isLoading: conflictLoading } = useQuery<ConflictResult>({
+   196→    queryKey: ['conflict-check', effectiveSelectedId],
+   197→    queryFn: async () => {
+   198→      if (!selected) return { hasConflict: false, conflictingBookings: [] };
+   199→      const r = await fetch('/api/bookings/check-conflict', {
+   200→        method: 'POST',
+   201→        headers: { 'Content-Type': 'application/json' },
+   202→        credentials: 'include',
+   203→        body: JSON.stringify({
+   204→          facilityId: selected.facility.id,
+   205→          eventDate: selected.eventDate,
+   206→          startTime: selected.startTime,
+   207→          endTime: selected.endTime,
+   208→          excludeBookingId: selected.id,
+   209→        }),
+   210→      });
+   211→      if (!r.ok) throw new Error('conflict-check failed');
+   212→      const j = await r.json();
+   213→      return j.data as ConflictResult;
+   214→    },
+   215→    enabled: !!selected,
+   216→  });
+   217→
+   218→  // ---- Action mutation ----
+   219→  const actionMut = useMutation({
+   220→    mutationFn: async (vars: { id: string; action: ActionKind; comment: string }) => {
+   221→      const r = await fetch(`/api/approvals/${vars.id}`, {
+   222→        method: 'PATCH',
+   223→        headers: { 'Content-Type': 'application/json' },
+   224→        credentials: 'include',
+   225→        body: JSON.stringify({ action: vars.action, comment: vars.comment || undefined }),
+   226→      });
+   227→      if (r.status === 409) {
+   228→        const j = await r.json().catch(() => ({}));
+   229→        throw new Error(j.message ?? (lang === 'bm' ? 'Pertindihan dikesan.' : 'Conflict detected.'));
+   230→      }
+   231→      if (!r.ok) {
+   232→        const j = await r.json().catch(() => ({}));
+   233→        throw new Error(j.message ?? (lang === 'bm' ? 'Tindakan gagal.' : 'Action failed.'));
+   234→      }
+   235→      return r.json();
+   236→    },
+   237→    onSuccess: (_data, vars) => {
+   238→      const msg =
+   239→        vars.action === 'APPROVE'
+   240→          ? lang === 'bm' ? 'Permohonan diluluskan.' : 'Booking approved.'
+   241→          : vars.action === 'REJECT'
+   242→          ? lang === 'bm' ? 'Permohonan ditolak.' : 'Booking rejected.'
+   243→          : lang === 'bm' ? 'Permintaan maklumat dihantar.' : 'Info request sent.';
+   244→      toast.success(msg);
+   245→      // refresh both lists & related caches
+   246→      qc.invalidateQueries({ queryKey: ['approvals'] });
+   247→      qc.invalidateQueries({ queryKey: ['conflict-check'] });
+   248→      qc.invalidateQueries({ queryKey: ['notifications'] });
+   249→      // auto-select next pending item (clear current selection so the
+   250→      // derived `selected` falls back to the next item in the refreshed list)
+   251→      setSelectedId((prev) => (prev === vars.id ? null : prev));
+   252→    },
+   253→    onError: (err: unknown) => {
+   254→      const msg = err instanceof Error ? err.message : 'Error';
+   255→      toast.error(msg);
+   256→    },
+   257→    onSettled: () => {
+   258→      setDialogAction(null);
+   259→      setComment('');
+   260→    },
+   261→  });
+   262→
+   263→  // ---- Open dialog with action ----
+   264→  const openAction = (a: ActionKind) => {
+   265→    setComment('');
+   266→    setDialogAction(a);
+   267→  };
+   268→
+   269→  // ---- Submit dialog ----
+   270→  const submitAction = () => {
+   271→    if (!selected || !dialogAction) return;
+   272→    if ((dialogAction === 'REJECT' || dialogAction === 'REQUEST_INFO') && !comment.trim()) {
+   273→      toast.error(lang === 'bm' ? 'Sila isi ruangan ulasan.' : 'Please fill in the comment.');
+   274→      return;
+   275→    }
+   276→    actionMut.mutate({ id: selected.id, action: dialogAction, comment: comment.trim() });
+   277→  };
+   278→
+   279→  // ---- Capacity check ----
+   280→  const overCapacity = selected ? selected.participantCount > selected.facility.capacity : false;
+   281→
+   282→  return (
+   283→    <motion.div
+   284→      initial={{ opacity: 0, y: 10 }}
+   285→      animate={{ opacity: 1, y: 0 }}
+   286→      transition={{ duration: 0.3 }}
+   287→      className="space-y-4"
+   288→    >
+   289→      {/* ===== Header / Stats ===== */}
+   290→      <GlassCard className="p-5 lg:p-6 relative overflow-hidden">
+   291→        <div className="absolute top-0 right-0 w-64 h-64 rounded-full bg-teal-500/10 blur-3xl pointer-events-none" />
+   292→        <div className="absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-amber-500/10 blur-3xl pointer-events-none" />
+   293→        <div className="relative z-10">
+   294→          <div className="flex items-center gap-2 text-[11px] text-muted-foreground uppercase tracking-wider mb-2">
+   295→            <ShieldAlert className="w-3 h-3" />
+   296→            <span>{t('nav_approvals')}</span>
+   297→          </div>
+   298→          <h2 className="text-xl lg:text-2xl font-bold gradient-text mb-3">
+   299→            {lang === 'bm' ? 'Papan Pemuka Kelulusan' : 'Approval Dashboard'}
+   300→          </h2>
+   301→          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+   302→            <StatTile
+   303→              icon={<Clock className="w-4 h-4" />}
+   304→              label={t('stats_pending')}
+   305→              value={stats.totalPending}
+   306→              tone="amber"
+   307→            />
+   308→            <StatTile
+   309→              icon={<Calendar className="w-4 h-4" />}
+   310→              label={lang === 'bm' ? 'Hari Ini' : "Today's Pending"}
+   311→              value={stats.todayPending}
+   312→              tone="teal"
+   313→            />
+   314→            <StatTile
+   315→              icon={<ShieldAlert className="w-4 h-4" />}
+   316→              label={lang === 'bm' ? 'Kelulusan Berperingkat' : 'Multi-level'}
+   317→              value={stats.multiLevel}
+   318→              tone="rose"
+   319→            />
+   320→            <StatTile
+   321→              icon={<Inbox className="w-4 h-4" />}
+   322→              label={lang === 'bm' ? 'Perlu Maklumat' : 'Needs Info'}
+   323→              value={bookings?.filter((b) => b.status === 'NEEDS_INFO').length ?? 0}
+   324→              tone="orange"
+   325→            />
+   326→          </div>
+   327→        </div>
+   328→      </GlassCard>
+   329→
+   330→      {/* ===== Search + Tabs ===== */}
+   331→      <GlassCard className="p-4">
+   332→        <div className="flex flex-col lg:flex-row gap-3 lg:items-center">
+   333→          <Tabs value={tab} onValueChange={(v) => setTab(v as 'PENDING' | 'NEEDS_INFO')}>
+   334→            <TabsList className="glass-input">
+   335→              <TabsTrigger value="PENDING" className="text-xs">
+   336→                {t('status_PENDING')}
+   337→              </TabsTrigger>
+   338→              <TabsTrigger value="NEEDS_INFO" className="text-xs">
+   339→                {t('status_NEEDS_INFO')}
+   340→              </TabsTrigger>
+   341→            </TabsList>
+   342→          </Tabs>
+   343→          <div className="relative flex-1">
+   344→            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+   345→            <Input
+   346→              value={search}
+   347→              onChange={(e) => setSearch(e.target.value)}
+   348→              placeholder={`${t('search')} — ${t('form_facility')} / ${t('name')} / ${lang === 'bm' ? 'No. Rujukan' : 'Ref No.'}`}
+   349→              className="pl-9 glass-input w-full"
+   350→            />
+   351→          </div>
+   352→          <div className="text-xs text-muted-foreground whitespace-nowrap">
+   353→            {t('showing')} <span className="font-semibold text-foreground">{filtered.length}</span> {t('of')} <span className="font-semibold text-foreground">{bookings?.length ?? 0}</span> {t('records')}
+   354→          </div>
+   355→        </div>
+   356→      </GlassCard>
+   357→
+   358→      {/* ===== Two-column layout ===== */}
+   359→      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+   360→        {/* ---- Left: list ---- */}
+   361→        <div className="lg:col-span-5 xl:col-span-4">
+   362→          <GlassCard className="p-3 h-full">
+   363→            <div className="flex items-center justify-between px-2 pb-2 mb-2 border-b border-border/40">
+   364→              <h3 className="text-sm font-semibold flex items-center gap-2">
+   365→                <Clock className="w-4 h-4 text-amber-500" />
+   366→                {tab === 'PENDING' ? t('status_PENDING') : t('status_NEEDS_INFO')}
+   367→              </h3>
+   368→              <span className="text-[10px] text-muted-foreground">{filtered.length}</span>
+   369→            </div>
+   370→            <div className="max-h-[640px] overflow-y-auto scroll-area-thin space-y-2 pr-1">
+   371→              {isLoading ? (
+   372→                Array.from({ length: 4 }).map((_, i) => (
+   373→                  <Skeleton key={i} className="h-24 w-full rounded-xl" />
+   374→                ))
+   375→              ) : filtered.length === 0 ? (
+   376→                <EmptyState lang={lang} />
+   377→              ) : (
+   378→                filtered.map((b) => (
+   379→                  <ApprovalListItem
+   380→                    key={b.id}
+   381→                    booking={b}
+   382→                    selected={selected?.id === b.id}
+   383→                    onSelect={() => setSelectedId(b.id)}
+   384→                  />
+   385→                ))
+   386→              )}
+   387→            </div>
+   388→          </GlassCard>
+   389→        </div>
+   390→
+   391→        {/* ---- Right: detail ---- */}
+   392→        <div className="lg:col-span-7 xl:col-span-8">
+   393→          {isLoading ? (
+   394→            <GlassCard className="p-6">
+   395→              <Skeleton className="h-8 w-1/3 mb-4" />
+   396→              <div className="space-y-3">
+   397→                <Skeleton className="h-20 w-full" />
+   398→                <Skeleton className="h-32 w-full" />
+   399→                <Skeleton className="h-24 w-full" />
+   400→              </div>
+   401→            </GlassCard>
+   402→          ) : !selected ? (
+   403→            <GlassCard className="p-10">
+   404→              <EmptyState lang={lang} large />
+   405→            </GlassCard>
+   406→          ) : (
+   407→            <DetailPanel
+   408→              booking={selected}
+   409→              conflict={conflict}
+   410→              conflictLoading={conflictLoading}
+   411→              overCapacity={overCapacity}
+   412→              onAction={openAction}
+   413→              pending={actionMut.isPending}
+   414→              lang={lang}
+   415→              t={t}
+   416→            />
+   417→          )}
+   418→        </div>
+   419→      </div>
+   420→
+   421→      {/* ===== Action Dialog ===== */}
+   422→      <Dialog
+   423→        open={!!dialogAction}
+   424→        onOpenChange={(o) => {
+   425→          if (!o) {
+   426→            setDialogAction(null);
+   427→            setComment('');
+   428→          }
+   429→        }}
+   430→      >
+   431→        <DialogContent className="glass-strong">
+   432→          <DialogHeader>
+   433→            <DialogTitle className="flex items-center gap-2">
+   434→              {dialogAction === 'APPROVE' && (
+   435→                <CheckCircle2 className="w-5 h-5 text-emerald-600" />
+   436→              )}
+   437→              {dialogAction === 'REJECT' && <XCircle className="w-5 h-5 text-rose-600" />}
+   438→              {dialogAction === 'REQUEST_INFO' && (
+   439→                <MessageSquare className="w-5 h-5 text-amber-600" />
+   440→              )}
+   441→              {dialogAction === 'APPROVE'
+   442→                ? t('approve')
+   443→                : dialogAction === 'REJECT'
+   444→                ? t('reject')
+   445→                : t('request_info')}
+   446→            </DialogTitle>
+   447→          </DialogHeader>
+   448→
+   449→          <div className="space-y-3">
+   450→            {dialogAction === 'APPROVE' && (
+   451→              <Alert className="border-emerald-300/60 bg-emerald-50/70 text-emerald-800">
+   452→                <CheckCircle2 className="w-4 h-4" />
+   453→                <AlertDescription>
+   454→                  {lang === 'bm'
+   455→                    ? 'Anda akan meluluskan permohonan ini. Notifikasi akan dihantar kepada pemohon.'
+   456→                    : 'You are about to approve this booking. The applicant will be notified.'}
+   457→                </AlertDescription>
+   458→              </Alert>
+   459→            )}
+   460→            {dialogAction === 'REJECT' && (
+   461→              <Alert variant="destructive">
+   462→                <AlertTriangle className="w-4 h-4" />
+   463→                <AlertDescription>
+   464→                  {lang === 'bm'
+   465→                    ? 'Permohonan akan ditolak. Sebab penolakan diperlukan.'
+   466→                    : 'This booking will be rejected. A reason is required.'}
+   467→                </AlertDescription>
+   468→              </Alert>
+   469→            )}
+   470→            {dialogAction === 'REQUEST_INFO' && (
+   471→              <Alert className="border-amber-300/60 bg-amber-50/70 text-amber-800">
+   472→                <AlertCircle className="w-4 h-4" />
+   473→                <AlertDescription>
+   474→                  {lang === 'bm'
+   475→                    ? 'Pemohon perlu memberikan maklumat tambahan sebelum kelulusan.'
+   476→                    : 'The applicant must provide additional information before approval.'}
+   477→                </AlertDescription>
+   478→              </Alert>
+   479→            )}
+   480→
+   481→            <div className="space-y-2">
+   482→              <Label htmlFor="admin-comment" className="text-xs font-semibold">
+   483→                {dialogAction === 'REJECT' ? t('rejection_reason') : t('admin_comment')}
+   484→                {(dialogAction === 'REJECT' || dialogAction === 'REQUEST_INFO') && (
+   485→                  <span className="text-rose-500 ml-0.5">*</span>
+   486→                )}
+   487→              </Label>
+   488→              <Textarea
+   489→                id="admin-comment"
+   490→                value={comment}
+   491→                onChange={(e) => setComment(e.target.value)}
+   492→                rows={4}
+   493→                placeholder={
+   494→                  dialogAction === 'REJECT'
+   495→                    ? lang === 'bm'
+   496→                      ? 'Nyatakan sebab penolakan...'
+   497→                      : 'State the reason for rejection...'
+   498→                    : dialogAction === 'REQUEST_INFO'
+   499→                    ? lang === 'bm'
+   500→                      ? 'Nyatakan maklumat tambahan yang diperlukan...'
+   501→                      : 'Specify the additional info needed...'
+   502→                    : lang === 'bm'
+   503→                    ? 'Catatan tambahan (pilihan)...'
+   504→                    : 'Additional note (optional)...'
+   505→                }
+   506→                className="glass-input resize-none"
+   507→                maxLength={1000}
+   508→              />
+   509→              <p className="text-[10px] text-muted-foreground text-right">{comment.length}/1000</p>
+   510→            </div>
+   511→          </div>
+   512→
+   513→          <DialogFooter>
+   514→            <Button
+   515→              variant="outline"
+   516→              onClick={() => {
+   517→                setDialogAction(null);
+   518→                setComment('');
+   519→              }}
+   520→              disabled={actionMut.isPending}
+   521→            >
+   522→              {t('close')}
+   523→            </Button>
+   524→            <Button
+   525→              onClick={submitAction}
+   526→              disabled={
+   527→                actionMut.isPending ||
+   528→                ((dialogAction === 'REJECT' || dialogAction === 'REQUEST_INFO') && !comment.trim())
+   529→              }
+   530→              className={cn(
+   531→                dialogAction === 'APPROVE' && 'bg-emerald-600 hover:bg-emerald-700 text-white',
+   532→                dialogAction === 'REJECT' && 'bg-rose-600 hover:bg-rose-700 text-white',
+   533→                dialogAction === 'REQUEST_INFO' && 'bg-amber-600 hover:bg-amber-700 text-white',
+   534→              )}
+   535→            >
+   536→              {actionMut.isPending ? t('loading') : t('send')}
+   537→            </Button>
+   538→          </DialogFooter>
+   539→        </DialogContent>
+   540→      </Dialog>
+   541→    </motion.div>
+   542→  );
+   543→}
+   544→
+   545→// ===================== Sub-components =====================
+   546→
+   547→function StatTile({
+   548→  icon,
+   549→  label,
+   550→  value,
+   551→  tone,
+   552→}: {
+   553→  icon: React.ReactNode;
+   554→  label: string;
+   555→  value: number;
+   556→  tone: 'amber' | 'teal' | 'rose' | 'orange';
+   557→}) {
+   558→  const tones: Record<string, string> = {
+   559→    amber: 'text-amber-700 bg-amber-100/60 border-amber-300/50',
+   560→    teal: 'text-teal-700 bg-teal-100/60 border-teal-300/50',
+   561→    rose: 'text-rose-700 bg-rose-100/60 border-rose-300/50',
+   562→    orange: 'text-orange-700 bg-orange-100/60 border-orange-300/50',
+   563→  };
+   564→  return (
+   565→    <div className={cn('rounded-xl border p-3 flex items-center gap-3', tones[tone])}>
+   566→      <div className="w-9 h-9 rounded-lg bg-white/60 dark:bg-black/20 flex items-center justify-center shrink-0">
+   567→        {icon}
+   568→      </div>
+   569→      <div className="min-w-0">
+   570→        <div className="text-xl font-bold leading-none">{value}</div>
+   571→        <div className="text-[10px] uppercase tracking-wide opacity-80 mt-1 truncate">{label}</div>
+   572→      </div>
+   573→    </div>
+   574→  );
+   575→}
+   576→
+   577→function ApprovalListItem({
+   578→  booking,
+   579→  selected,
+   580→  onSelect,
+   581→}: {
+   582→  booking: Booking;
+   583→  selected: boolean;
+   584→  onSelect: () => void;
+   585→}) {
+   586→  const { t, lang } = useT();
+   587→  return (
+   588→    <button
+   589→      onClick={onSelect}
+   590→      className={cn(
+   591→        'w-full text-left p-3 rounded-xl border transition-all duration-200 group',
+   592→        selected
+   593→          ? 'border-teal-500/60 bg-teal-500/10 shadow-sm ring-1 ring-teal-500/30'
+   594→          : 'border-border/40 bg-white/40 dark:bg-white/5 hover:border-teal-400/40 hover:bg-teal-500/5',
+   595→      )}
+   596→    >
+   597→      <div className="flex items-start justify-between gap-2 mb-2">
+   598→        <div className="min-w-0 flex-1">
+   599→          <div className="flex items-center gap-2">
+   600→            <span className="font-mono text-[11px] font-bold text-teal-700 dark:text-teal-400">
+   601→              {booking.bookingRef}
+   602→            </span>
+   603→            {booking.requiresMultiLevel && (
+   604→              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold border border-rose-300/60 bg-rose-100/70 text-rose-700">
+   605→                <ShieldAlert className="w-2.5 h-2.5" />
+   606→                {lang === 'bm' ? 'Multi-level' : 'Multi-level'}
+   607→              </span>
+   608→            )}
+   609→          </div>
+   610→          <div className="font-semibold text-sm truncate mt-0.5">{booking.user.name}</div>
+   611→        </div>
+   612→        <StatusBadge status={booking.status} className="shrink-0 !text-[10px] !px-2 !py-0.5" />
+   613→      </div>
+   614→
+   615→      <div className="flex items-center gap-2 mb-1.5">
+   616→        <span
+   617→          className="w-2.5 h-2.5 rounded-full shrink-0"
+   618→          style={{ background: booking.facility.colorCode }}
+   619→        />
+   620→        <span className="text-xs text-foreground/80 truncate flex-1">{booking.facility.name}</span>
+   621→      </div>
+   622→
+   623→      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+   624→        <span className="inline-flex items-center gap-1">
+   625→          <Calendar className="w-3 h-3" />
+   626→          {fmtDate(booking.eventDate, lang)}
+   627→        </span>
+   628→        <span className="inline-flex items-center gap-1">
+   629→          <Clock className="w-3 h-3" />
+   630→          {booking.startTime}–{booking.endTime}
+   631→        </span>
+   632→        <span className="inline-flex items-center gap-1">
+   633→          <Users className="w-3 h-3" />
+   634→          {booking.participantCount}
+   635→        </span>
+   636→      </div>
+   637→
+   638→      {booking.programName && (
+   639→        <div className="mt-1.5 text-[11px] text-foreground/70 truncate">
+   640→          <span className="opacity-70">{t('form_program')}:</span> {booking.programName}
+   641→        </div>
+   642→      )}
+   643→    </button>
+   644→  );
+   645→}
+   646→
+   647→function DetailPanel({
+   648→  booking,
+   649→  conflict,
+   650→  conflictLoading,
+   651→  overCapacity,
+   652→  onAction,
+   653→  pending,
+   654→  lang,
+   655→  t,
+   656→}: {
+   657→  booking: Booking;
+   658→  conflict: ConflictResult | undefined;
+   659→  conflictLoading: boolean;
+   660→  overCapacity: boolean;
+   661→  onAction: (a: ActionKind) => void;
+   662→  pending: boolean;
+   663→  lang: 'bm' | 'en';
+   664→  t: (k: never) => string;
+   665→}) {
+   666→  const equipment = safeParseEquip(booking.equipmentNeeded);
+   667→  const locale = lang === 'bm' ? 'ms-MY' : 'en-GB';
+   668→
+   669→  return (
+   670→    <motion.div
+   671→      key={booking.id}
+   672→      initial={{ opacity: 0, y: 8 }}
+   673→      animate={{ opacity: 1, y: 0 }}
+   674→      transition={{ duration: 0.2 }}
+   675→      className="space-y-4"
+   676→    >
+   677→      {/* ---- Header ---- */}
+   678→      <GlassCard className="p-5">
+   679→        <div className="flex flex-wrap items-start justify-between gap-3">
+   680→          <div className="min-w-0 flex-1">
+   681→            <div className="flex items-center gap-2 mb-1">
+   682→              <span className="font-mono text-xs font-bold text-teal-700 dark:text-teal-400">
+   683→                {booking.bookingRef}
+   684→              </span>
+   685→              <StatusBadge status={booking.status} />
+   686→              {booking.requiresMultiLevel && (
+   687→                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border border-rose-300/60 bg-rose-100/70 text-rose-700">
+   688→                  <ShieldAlert className="w-3 h-3" />
+   689→                  {lang === 'bm' ? 'Perlukan Kelulusan Tambahan' : 'Additional Approval Required'}
+   690→                </span>
+   691→              )}
+   692→            </div>
+   693→            <h3 className="text-lg font-bold gradient-text">{booking.facility.name}</h3>
+   694→            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
+   695→              <span className="inline-flex items-center gap-1">
+   696→                <Calendar className="w-3 h-3" />
+   697→                {fmtDate(booking.eventDate, lang)}
+   698→              </span>
+   699→              <span className="inline-flex items-center gap-1">
+   700→                <Clock className="w-3 h-3" />
+   701→                {booking.startTime} – {booking.endTime}
+   702→              </span>
+   703→              <span className="inline-flex items-center gap-1">
+   704→                <MapPin className="w-3 h-3" />
+   705→                {booking.facility.location || '—'}
+   706→              </span>
+   707→            </div>
+   708→          </div>
+   709→        </div>
+   710→      </GlassCard>
+   711→
+   712→      {/* ---- Warnings ---- */}
+   713→      {(overCapacity || conflict?.hasConflict) && (
+   714→        <div className="space-y-2">
+   715→          {overCapacity && (
+   716→            <Alert className="border-amber-300/70 bg-amber-50/80 text-amber-900">
+   717→              <AlertTriangle className="w-4 h-4" />
+   718→              <AlertDescription>
+   719→                <span className="font-semibold">
+   720→                  {lang === 'bm' ? 'Amaran Kapasiti: ' : 'Capacity Warning: '}
+   721→                </span>
+   722→                {lang === 'bm'
+   723→                  ? `${booking.participantCount} peserta melebihi kapasiti ${booking.facility.capacity} (${booking.facility.name}).`
+   724→                  : `${booking.participantCount} participants exceed capacity of ${booking.facility.capacity} (${booking.facility.name}).`}
+   725→              </AlertDescription>
+   726→            </Alert>
+   727→          )}
+   728→          {conflictLoading ? (
+   729→            <Alert className="border-border/40">
+   730→              <AlertCircle className="w-4 h-4" />
+   731→              <AlertDescription>
+   732→                {lang === 'bm' ? 'Menyemak pertindihan...' : 'Checking for conflicts...'}
+   733→              </AlertDescription>
+   734→            </Alert>
+   735→          ) : conflict?.hasConflict ? (
+   736→            <Alert variant="destructive">
+   737→              <AlertTriangle className="w-4 h-4" />
+   738→              <AlertDescription>
+   739→                <div className="font-semibold mb-1">
+   740→                  {lang === 'bm'
+   741→                    ? 'Amaran: Pertindihan Tempahan Dikesan!'
+   742→                    : 'Warning: Booking Conflict Detected!'}
+   743→                </div>
+   744→                <div className="text-xs space-y-1">
+   745→                  {conflict.conflictingBookings.map((c) => (
+   746→                    <div key={c.id} className="flex items-center gap-2">
+   747→                      <span className="font-mono">{c.bookingRef}</span>
+   748→                      <span>·</span>
+   749→                      <span>
+   750→                        {c.startTime}–{c.endTime}
+   751→                      </span>
+   752→                      <span>·</span>
+   753→                      <StatusBadge status={c.status} className="!text-[9px] !px-1.5 !py-0" />
+   754→                      {c.programName && <span className="truncate opacity-80">— {c.programName}</span>}
+   755→                    </div>
+   756→                  ))}
+   757→                </div>
+   758→              </AlertDescription>
+   759→            </Alert>
+   760→          ) : null}
+   761→        </div>
+   762→      )}
+   763→
+   764→      {/* ---- Two-column body ---- */}
+   765→      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+   766→        {/* Applicant info */}
+   767→        <GlassCard className="p-4">
+   768→          <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+   769→            <User className="w-3.5 h-3.5" />
+   770→            {lang === 'bm' ? 'Maklumat Pemohon' : 'Applicant Information'}
+   771→          </h4>
+   772→          <div className="space-y-2.5 text-sm">
+   773→            <DetailRow icon={<User className="w-3.5 h-3.5" />} label={t('name' as never)} value={booking.user.name} />
+   774→            <DetailRow
+   775→              icon={<MessageSquare className="w-3.5 h-3.5" />}
+   776→              label={t('email' as never)}
+   777→              value={booking.user.email}
+   778→            />
+   779→            <DetailRow
+   780→              icon={<Building2 className="w-3.5 h-3.5" />}
+   781→              label={t('department' as never)}
+   782→              value={booking.user.department || '—'}
+   783→            />
+   784→            <DetailRow
+   785→              icon={<User className="w-3.5 h-3.5" />}
+   786→              label={t('phone' as never)}
+   787→              value={booking.user.phone || '—'}
+   788→            />
+   789→          </div>
+   790→        </GlassCard>
+   791→
+   792→        {/* Facility info */}
+   793→        <GlassCard className="p-4">
+   794→          <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+   795→            <Building2 className="w-3.5 h-3.5" />
+   796→            {lang === 'bm' ? 'Maklumat Kemudahan' : 'Facility Information'}
+   797→          </h4>
+   798→          <div className="space-y-2.5 text-sm">
+   799→            <DetailRow
+   800→              icon={<MapPin className="w-3.5 h-3.5" />}
+   801→              label={t('form_facility' as never)}
+   802→              value={booking.facility.name}
+   803→              accent={booking.facility.colorCode}
+   804→            />
+   805→            <DetailRow
+   806→              icon={<MapPin className="w-3.5 h-3.5" />}
+   807→              label={lang === 'bm' ? 'Lokasi' : 'Location'}
+   808→              value={booking.facility.location || '—'}
+   809→            />
+   810→            <DetailRow
+   811→              icon={<Users className="w-3.5 h-3.5" />}
+   812→              label={lang === 'bm' ? 'Kapasiti' : 'Capacity'}
+   813→              value={`${booking.facility.capacity} ${lang === 'bm' ? 'orang' : 'pax'}`}
+   814→              warn={overCapacity}
+   815→            />
+   816→            <DetailRow
+   817→              icon={<Building2 className="w-3.5 h-3.5" />}
+   818→              label={lang === 'bm' ? 'Kategori' : 'Category'}
+   819→              value={
+   820→                booking.facility.category === 'COMPUTER_ROOM'
+   821→                  ? lang === 'bm'
+   822→                    ? 'Bilik Komputer'
+   823→                    : 'Computer Room'
+   824→                  : lang === 'bm'
+   825→                  ? 'Dewan Kuliah'
+   826→                  : 'Lecture Hall'
+   827→              }
+   828→            />
+   829→          </div>
+   830→        </GlassCard>
+   831→      </div>
+   832→
+   833→      {/* ---- Booking details ---- */}
+   834→      <GlassCard className="p-5">
+   835→        <h4 className="text-xs font-bold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
+   836→          <Calendar className="w-3.5 h-3.5" />
+   837→          {lang === 'bm' ? 'Butiran Permohonan' : 'Booking Details'}
+   838→        </h4>
+   839→        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+   840→          <div>
+   841→            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   842→              {t('form_date' as never)}
+   843→            </Label>
+   844→            <div className="text-sm font-medium">
+   845→              {new Date(booking.eventDate).toLocaleDateString(locale, {
+   846→                weekday: 'long',
+   847→                day: 'numeric',
+   848→                month: 'long',
+   849→                year: 'numeric',
+   850→              })}
+   851→            </div>
+   852→          </div>
+   853→          <div>
+   854→            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   855→              {lang === 'bm' ? 'Masa' : 'Time'}
+   856→            </Label>
+   857→            <div className="text-sm font-medium">
+   858→              {booking.startTime} – {booking.endTime}
+   859→            </div>
+   860→          </div>
+   861→          <div>
+   862→            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   863→              {t('form_participants' as never)}
+   864→            </Label>
+   865→            <div className="text-sm font-medium flex items-center gap-2">
+   866→              <Users className="w-3.5 h-3.5 text-teal-600" />
+   867→              {booking.participantCount}
+   868→              <span className="text-xs text-muted-foreground">
+   869→                / {booking.facility.capacity} {lang === 'bm' ? 'kapasiti' : 'capacity'}
+   870→              </span>
+   871→              {overCapacity && (
+   872→                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-300/60">
+   873→                  {lang === 'bm' ? 'Melebihi' : 'Over'}
+   874→                </span>
+   875→              )}
+   876→            </div>
+   877→          </div>
+   878→          <div>
+   879→            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   880→              {t('form_program' as never)}
+   881→            </Label>
+   882→            <div className="text-sm font-medium">{booking.programName || '—'}</div>
+   883→          </div>
+   884→          <div className="md:col-span-2">
+   885→            <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   886→              {t('form_purpose' as never)}
+   887→            </Label>
+   888→            <p className="text-sm mt-1 p-3 rounded-lg bg-white/50 dark:bg-white/5 border border-border/40">
+   889→              {booking.purpose}
+   890→            </p>
+   891→          </div>
+   892→          {equipment.length > 0 && (
+   893→            <div className="md:col-span-2">
+   894→              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   895→                {t('form_equipment' as never)}
+   896→              </Label>
+   897→              <div className="flex flex-wrap gap-1.5 mt-1.5">
+   898→                {equipment.map((eq, i) => (
+   899→                  <span
+   900→                    key={i}
+   901→                    className="text-xs px-2 py-1 rounded-full bg-teal-100/70 text-teal-800 border border-teal-300/50"
+   902→                  >
+   903→                    {eq}
+   904→                  </span>
+   905→                ))}
+   906→              </div>
+   907→            </div>
+   908→          )}
+   909→          {booking.notes && (
+   910→            <div className="md:col-span-2">
+   911→              <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">
+   912→                {t('form_notes' as never)}
+   913→              </Label>
+   914→              <p className="text-sm mt-1 p-3 rounded-lg bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/50">
+   915→                {booking.notes}
+   916→              </p>
+   917→            </div>
+   918→          )}
+   919→          <div className="md:col-span-2 text-[10px] text-muted-foreground pt-1 border-t border-border/40">
+   920→            {lang === 'bm' ? 'Dihantar pada' : 'Submitted at'}: {fmtDateTime(booking.createdAt, lang)}
+   921→          </div>
+   922→        </div>
+   923→      </GlassCard>
+   924→
+   925→      {/* ---- Action buttons ---- */}
+   926→      <GlassCard className="p-4 sticky bottom-4 z-10">
+   927→        <div className="flex flex-col sm:flex-row gap-2">
+   928→          <Button
+   929→            onClick={() => onAction('APPROVE')}
+   930→            disabled={pending}
+   931→            className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+   932→          >
+   933→            <CheckCircle2 className="w-4 h-4 mr-1.5" />
+   934→            {t('approve' as never)}
+   935→          </Button>
+   936→          <Button
+   937→            onClick={() => onAction('REQUEST_INFO')}
+   938→            disabled={pending}
+   939→            variant="outline"
+   940→            className="flex-1 border-amber-400/50 text-amber-700 hover:bg-amber-50"
+   941→          >
+   942→            <MessageSquare className="w-4 h-4 mr-1.5" />
+   943→            {t('request_info' as never)}
+   944→          </Button>
+   945→          <Button
+   946→            onClick={() => onAction('REJECT')}
+   947→            disabled={pending}
+   948→            variant="outline"
+   949→            className="flex-1 border-rose-400/50 text-rose-700 hover:bg-rose-50"
+   950→          >
+   951→            <XCircle className="w-4 h-4 mr-1.5" />
+   952→            {t('reject' as never)}
+   953→          </Button>
+   954→        </div>
+   955→      </GlassCard>
+   956→    </motion.div>
+   957→  );
+   958→}
+   959→
+   960→function DetailRow({
+   961→  icon,
+   962→  label,
+   963→  value,
+   964→  accent,
+   965→  warn,
+   966→}: {
+   967→  icon: React.ReactNode;
+   968→  label: string;
+   969→  value: string;
+   970→  accent?: string;
+   971→  warn?: boolean;
+   972→}) {
+   973→  return (
+   974→    <div className="flex items-start gap-2.5">
+   975→      <span className="w-6 h-6 rounded-md bg-white/50 dark:bg-white/5 flex items-center justify-center text-muted-foreground shrink-0 mt-0.5">
+   976→        {icon}
+   977→      </span>
+   978→      <div className="min-w-0 flex-1">
+   979→        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</div>
+   980→        <div
+   981→          className={cn(
+   982→            'text-sm font-medium truncate',
+   983→            warn && 'text-amber-700 dark:text-amber-400',
+   984→          )}
+   985→        >
+   986→          {accent && <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: accent }} />}
+   987→          {value}
+   988→        </div>
+   989→      </div>
+   990→    </div>
+   991→  );
+   992→}
+   993→
+   994→function EmptyState({ lang, large }: { lang: 'bm' | 'en'; large?: boolean }) {
+   995→  return (
+   996→    <div className={cn('flex flex-col items-center justify-center text-center', large ? 'py-16' : 'py-10')}>
+   997→      <div className="w-16 h-16 rounded-full bg-teal-500/10 flex items-center justify-center mb-3">
+   998→        <Inbox className="w-8 h-8 text-teal-600" />
+   999→      </div>
+  1000→      <h4 className="font-semibold text-sm mb-1">
+  1001→        {lang === 'bm' ? 'Tiada permohonan menunggu' : 'No pending approvals'}
+  1002→      </h4>
+  1003→      <p className="text-xs text-muted-foreground max-w-xs">
+  1004→        {lang === 'bm'
+  1005→          ? 'Semua permohonan telah diproses. Kerja bagus!'
+  1006→          : 'All requests have been processed. Great job!'}
+  1007→      </p>
+  1008→    </div>
+  1009→  );
+  1010→}
+  1011→
