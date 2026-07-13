@@ -1,0 +1,182 @@
+// Prisma schema for Sistem e-Tempahan PLTT-JTM
+// Pusat Latihan Teknologi Tinggi (PLTT) — Jabatan Tenaga Manusia (JTM)
+// Data model per PRD §11
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===================== USER =====================
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  passwordHash  String
+  department    String?  // Jabatan/Unit
+  phone         String?
+  role          String   @default("USER") // USER | FACILITY_ADMIN | SUPER_ADMIN
+  status        String   @default("ACTIVE") // ACTIVE | SUSPENDED | INACTIVE
+  staffId       String?  // No. Pekerja JTM
+  failedLoginAttempts Int @default(0)
+  lockedUntil   DateTime?
+  lastLoginAt   DateTime?
+  lastLoginIp   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  bookings       Booking[]
+  approvals      ApprovalLog[]
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  feedbacks      Feedback[]
+  sessions       Session[]
+}
+
+// ===================== FACILITY =====================
+model Facility {
+  id              String   @id @default(cuid())
+  name            String   // e.g. "Bilik Komputer 1"
+  category        String   // COMPUTER_ROOM | LECTURE_HALL
+  capacity        Int
+  location        String?  // e.g. "Aras 2, Blok A"
+  equipment       String?  // JSON string of equipment list
+  operatingStart  String   @default("08:00") // HH:mm
+  operatingEnd    String   @default("22:00") // HH:mm
+  status          String   @default("ACTIVE") // ACTIVE | MAINTENANCE | INACTIVE
+  colorCode       String   @default("#0ea5e9") // for calendar color-coding
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  bookings        Booking[]
+}
+
+// ===================== BOOKING =====================
+model Booking {
+  id              String   @id @default(cuid())
+  bookingRef      String   @unique // e.g. TEMP-2026-0001
+  userId          String
+  facilityId      String
+  eventDate       DateTime // date of booking (start of day)
+  startTime       String   // HH:mm
+  endTime         String   // HH:mm
+  purpose         String   // Tujuan tempahan
+  programName     String?  // Nama program/aktiviti
+  participantCount Int
+  equipmentNeeded String?  // JSON string
+  supportDocUrl   String?  // Muat naik dokumen sokongan (path)
+  notes           String?
+  status          String   @default("PENDING")
+  // PENDING | APPROVED | REJECTED | CANCELLED | COMPLETED | NEEDS_INFO
+  rejectionReason String?
+  adminNotes      String?
+  isRecurring     Boolean  @default(false)
+  recurringParentId String? // self-reference for recurring bookings
+  requiresMultiLevel Boolean @default(false) // multi-level approval for big events
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  facility        Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  approvalLogs    ApprovalLog[]
+  feedbacks       Feedback[]
+}
+
+// ===================== APPROVAL LOG =====================
+model ApprovalLog {
+  id          String   @id @default(cuid())
+  bookingId   String
+  adminId     String
+  action      String   // APPROVE | REJECT | REQUEST_INFO | CANCEL
+  comment     String?
+  previousStatus String?
+  newStatus   String?
+  createdAt   DateTime @default(now())
+
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  admin       User     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+}
+
+// ===================== NOTIFICATION =====================
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  type        String   // EMAIL | IN_APP | SMS
+  title       String
+  content     String
+  isRead      Boolean  @default(false)
+  bookingId   String?  // optional link to a booking
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ===================== AUDIT LOG =====================
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String?
+  module      String   // AUTH | BOOKING | APPROVAL | FACILITY | USER_MGMT | SYSTEM
+  action      String
+  entity      String?  // affected entity type
+  entityId    String?  // affected entity id
+  ipAddress   String?
+  userAgent   String?
+  details     String?  // JSON string of additional details
+  severity    String   @default("INFO") // INFO | WARNING | CRITICAL
+  createdAt   DateTime @default(now())
+
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+}
+
+// ===================== FEEDBACK (post-use rating) =====================
+model Feedback {
+  id          String   @id @default(cuid())
+  bookingId   String
+  userId      String
+  rating      Int      // 1-5 stars
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  booking     Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ===================== SESSION (NextAuth) =====================
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ===================== ACCOUNT (NextAuth OAuth) =====================
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+}
+
+// ===================== VERIFICATION TOKEN (NextAuth) =====================
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+}
