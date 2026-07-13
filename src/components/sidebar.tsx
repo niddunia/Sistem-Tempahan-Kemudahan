@@ -83,18 +83,18 @@ export function Sidebar() {
         {/* User card */}
         {isAuthenticated && user ? (
           <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40">
-            <div className="flex items-center gap-2.5">
-              <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
-                <AvatarFallback className="gradient-primary text-white">
+            <div className="flex items-start gap-2.5">
+              <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0 rounded-full">
+                <AvatarFallback className="gradient-primary text-white rounded-full">
                   {user.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold break-words leading-tight">{user.name}</div>
-                <div className="text-[10px] text-muted-foreground break-words leading-tight mt-0.5">{user.department || user.email}</div>
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <p className="text-xs font-semibold leading-tight truncate">{user.name}</p>
+                <p className="text-[10px] text-muted-foreground leading-tight truncate mt-0.5">{user.department || user.email}</p>
               </div>
             </div>
-            <div className="mt-2 flex items-center justify-end">
+            <div className="mt-2 flex justify-end">
               <RoleBadge role={user.role} />
             </div>
           </div>
@@ -115,14 +115,14 @@ export function Sidebar() {
                 key={item.key}
                 onClick={() => setView(item.key)}
                 className={cn(
-                  'w-full min-w-0 flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all text-left',
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all text-left',
                   active
                     ? 'gradient-primary text-white shadow-lg shadow-teal-500/25'
                     : 'text-foreground/80 hover:bg-foreground/5 hover:text-foreground',
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1 min-w-0 break-words leading-tight">{item.label}</span>
+                <span className="flex-1 truncate leading-tight">{item.label}</span>
               </button>
             );
           })}
@@ -135,10 +135,10 @@ export function Sidebar() {
               onClick={() => signOut().then(() => window.location.reload())}
               variant="ghost"
               size="sm"
-              className="w-full min-w-0 justify-start gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20 whitespace-normal break-words"
+              className="w-full justify-start gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20"
             >
               <LogOut className="w-4 h-4 shrink-0" />
-              <span className="flex-1 min-w-0 text-left leading-tight">{t('sign_out')}</span>
+              <span className="flex-1 text-left leading-tight">{t('sign_out')}</span>
             </Button>
           ) : (
             <Button
