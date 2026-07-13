@@ -11,7 +11,6 @@ import {
   BarChart3, Users, ScrollText, LogOut, X, ShieldCheck,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 interface NavItem {
   key: ViewKey;
@@ -82,17 +81,43 @@ export function Sidebar() {
 
         {/* User card */}
         {isAuthenticated && user ? (
-          <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40 relative">
-            <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center rounded-full absolute top-3 left-3">
-              <AvatarFallback className="gradient-primary text-white rounded-full w-full h-full">
-                {user.name.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="pl-11 pr-1 min-h-[36px] flex flex-col justify-center">
-              <p className="text-xs font-semibold leading-tight truncate">{user.name}</p>
-              <p className="text-[10px] text-muted-foreground leading-tight truncate mt-0.5">{user.department || user.email}</p>
-            </div>
-            <div className="mt-2 flex justify-end">
+          <div
+            className="mx-3 mb-3 p-3 rounded-xl border border-border/40"
+            style={{ background: 'rgba(255, 255, 255, 0.6)', borderRadius: '12px' }}
+          >
+            <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <tbody>
+                <tr>
+                  <td style={{ width: '40px', verticalAlign: 'top', padding: 0 }}>
+                    <div
+                      style={{
+                        width: '36px',
+                        height: '36px',
+                        borderRadius: '50%',
+                        background: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+                        color: '#ffffff',
+                        fontSize: '14px',
+                        fontWeight: 700,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}
+                    >
+                      {user.name.charAt(0).toUpperCase()}
+                    </div>
+                  </td>
+                  <td style={{ verticalAlign: 'middle', padding: '0 0 0 10px', overflow: 'hidden' }}>
+                    <div style={{ fontSize: '12px', fontWeight: 600, lineHeight: '1.25', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'oklch(0.18 0.02 165)' }}>
+                      {user.name}
+                    </div>
+                    <div style={{ fontSize: '10px', lineHeight: '1.25', marginTop: '2px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'oklch(0.5 0.02 165)' }}>
+                      {user.department || user.email}
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
               <RoleBadge role={user.role} />
             </div>
           </div>
