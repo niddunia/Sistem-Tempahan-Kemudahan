@@ -82,17 +82,15 @@ export function Sidebar() {
 
         {/* User card */}
         {isAuthenticated && user ? (
-          <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40">
-            <div className="flex items-start gap-2.5">
-              <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0 rounded-full">
-                <AvatarFallback className="gradient-primary text-white rounded-full">
-                  {user.name.charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0 overflow-hidden">
-                <p className="text-xs font-semibold leading-tight truncate">{user.name}</p>
-                <p className="text-[10px] text-muted-foreground leading-tight truncate mt-0.5">{user.department || user.email}</p>
-              </div>
+          <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40 relative">
+            <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center rounded-full absolute top-3 left-3">
+              <AvatarFallback className="gradient-primary text-white rounded-full w-full h-full">
+                {user.name.charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="pl-11 pr-1 min-h-[36px] flex flex-col justify-center">
+              <p className="text-xs font-semibold leading-tight truncate">{user.name}</p>
+              <p className="text-[10px] text-muted-foreground leading-tight truncate mt-0.5">{user.department || user.email}</p>
             </div>
             <div className="mt-2 flex justify-end">
               <RoleBadge role={user.role} />
@@ -122,7 +120,7 @@ export function Sidebar() {
                 )}
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                <span className="flex-1 truncate leading-tight">{item.label}</span>
+                <span className="truncate leading-tight">{item.label}</span>
               </button>
             );
           })}
@@ -138,7 +136,7 @@ export function Sidebar() {
               className="w-full justify-start gap-2 text-rose-600 hover:bg-rose-50 hover:text-rose-700 dark:hover:bg-rose-900/20"
             >
               <LogOut className="w-4 h-4 shrink-0" />
-              <span className="flex-1 text-left leading-tight">{t('sign_out')}</span>
+              <span className="text-left leading-tight">{t('sign_out')}</span>
             </Button>
           ) : (
             <Button
