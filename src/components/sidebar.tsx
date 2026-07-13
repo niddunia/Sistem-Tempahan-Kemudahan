@@ -82,17 +82,21 @@ export function Sidebar() {
 
         {/* User card */}
         {isAuthenticated && user ? (
-          <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40 flex items-center gap-3">
-            <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center">
-              <AvatarFallback className="gradient-primary text-white">
-                {user.name.charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-semibold truncate">{user.name}</div>
-              <div className="text-[10px] text-muted-foreground break-words leading-tight">{user.department || user.email}</div>
+          <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40">
+            <div className="flex items-center gap-2.5">
+              <Avatar className="w-9 h-9 gradient-primary text-white text-xs font-bold flex items-center justify-center shrink-0">
+                <AvatarFallback className="gradient-primary text-white">
+                  {user.name.charAt(0).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold break-words leading-tight">{user.name}</div>
+                <div className="text-[10px] text-muted-foreground break-words leading-tight mt-0.5">{user.department || user.email}</div>
+              </div>
             </div>
-            <RoleBadge role={user.role} className="ml-auto" />
+            <div className="mt-2 flex items-center justify-end">
+              <RoleBadge role={user.role} />
+            </div>
           </div>
         ) : (
           <div className="mx-3 mb-3 p-3 rounded-xl glass-input border border-border/40 flex items-center gap-2 text-xs text-muted-foreground">
