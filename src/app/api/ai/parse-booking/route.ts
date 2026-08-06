@@ -10,6 +10,7 @@ import { getSessionUser, unauthenticated, badRequest, getClientIp } from '@/lib/
 import { recordAudit } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
 import { db } from '@/lib/db';
+import { createZAIClient } from '@/lib/zai-client';
 
 interface ParsedBooking {
   facility?: string;
@@ -56,8 +57,7 @@ Senarai kemudahan tersedia: ${facList}
 Jawab HANYA dengan JSON yang sah, tiada penjelasan tambahan. Jika maklumat tidak lengkap, isikan medan kosong dengan null.`;
 
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
+    const zai = await createZAIClient();
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },

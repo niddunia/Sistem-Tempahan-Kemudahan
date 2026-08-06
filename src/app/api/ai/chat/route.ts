@@ -9,6 +9,7 @@ import { getSessionUser, unauthenticated, badRequest, getClientIp } from '@/lib/
 import { recordAudit } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
 import { db } from '@/lib/db';
+import { createZAIClient } from '@/lib/zai-client';
 
 interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -64,9 +65,8 @@ ${ctx || '(tiada)'}
 Jawab dengan ringkas, mesra, dan profesional. Gunakan format senarai/memarkdown jika perlu.`;
 
   try {
-    // Dynamically import to keep cold-start fast and avoid SSR issues
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
+    // Use shared ZAI client helper (works on both local sandbox and Vercel)
+    const zai = await createZAIClient();
     const history: ChatMessage[] = (body.history ?? []).slice(-10);
 
     const completion = await zai.chat.completions.create({

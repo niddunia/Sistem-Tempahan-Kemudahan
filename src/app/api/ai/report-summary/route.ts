@@ -9,6 +9,7 @@ import { recordAudit } from '@/lib/audit';
 import { rateLimit } from '@/lib/rate-limit';
 import { db } from '@/lib/db';
 import { isFacilityAdminOrAbove } from '@/lib/rbac';
+import { createZAIClient } from '@/lib/zai-client';
 
 export async function POST(req: NextRequest) {
   const session = await getSessionUser();
@@ -58,8 +59,7 @@ Statistik: ${JSON.stringify(stats)}
 Jawab dengan terus terang, profesional, dan berdasarkan data sahaja.`;
 
   try {
-    const ZAI = (await import('z-ai-web-dev-sdk')).default;
-    const zai = await ZAI.create();
+    const zai = await createZAIClient();
     const completion = await zai.chat.completions.create({
       messages: [
         { role: 'system', content: systemPrompt },
