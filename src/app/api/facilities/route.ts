@@ -27,7 +27,7 @@ export async function GET(req: NextRequest) {
 
 const createSchema = z.object({
   name: z.string().min(2).max(100),
-  category: z.enum(['COMPUTER_ROOM', 'LECTURE_HALL']),
+  category: z.string().min(2).max(50),
   capacity: z.number().int().min(1).max(1000),
   location: z.string().max(200).optional(),
   equipment: z.string().max(500).optional(),

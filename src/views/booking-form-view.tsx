@@ -85,7 +85,7 @@ interface ConflictResult {
   alternatives: ConflictAlternative[];
 }
 
-type CategoryFilter = 'all' | 'COMPUTER_ROOM' | 'LECTURE_HALL';
+type CategoryFilter = 'all' | string;
 
 export function BookingFormView() {
   const { t, lang } = useT();

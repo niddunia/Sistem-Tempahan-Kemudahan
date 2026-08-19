@@ -65,7 +65,8 @@ import { cn } from '@/lib/utils';
 
 // ===================== Types =====================
 type FacilityStatus = 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE';
-type Category = 'COMPUTER_ROOM' | 'LECTURE_HALL';
+// Category is now a flexible string to support any category from Supabase
+type Category = string;
 
 interface Facility {
   id: string;
@@ -134,14 +135,21 @@ const toFormState = (f: Facility): FacilityFormState => ({
   colorCode: f.colorCode ?? '#0d9488',
 });
 
-const categoryLabel = (cat: Category, lang: 'bm' | 'en') =>
-  cat === 'COMPUTER_ROOM'
-    ? lang === 'bm'
-      ? 'Bilik Komputer'
-      : 'Computer Room'
-    : lang === 'bm'
-      ? 'Dewan Kuliah'
-      : 'Lecture Hall';
+const CATEGORY_LABELS: Record<string, { bm: string; en: string }> = {
+  COMPUTER_ROOM: { bm: 'Bilik Komputer', en: 'Computer Room' },
+  LECTURE_HALL: { bm: 'Dewan Kuliah', en: 'Lecture Hall' },
+  ASSEMBLY_HALL: { bm: 'Dewan Utama', en: 'Assembly Hall' },
+  MEETING_ROOM: { bm: 'Bilik Mesyuarat', en: 'Meeting Room' },
+  SEMINAR_ROOM: { bm: 'Bilik Seminar', en: 'Seminar Room' },
+  MAKMAL_BENGKEL: { bm: 'Makmal Bengkel', en: 'Workshop Lab' },
+  HOSTEL: { bm: 'Asrama', en: 'Hostel' },
+};
+
+const categoryLabel = (cat: string, lang: 'bm' | 'en') => {
+  const labels = CATEGORY_LABELS[cat];
+  if (labels) return lang === 'bm' ? labels.bm : labels.en;
+  return cat.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+};
 
 // ===================== Main View =====================
 export function FacilitiesView() {
@@ -468,6 +476,11 @@ export function FacilitiesView() {
                 <SelectItem value="ALL">{tr('Semua Kategori', 'All Categories')}</SelectItem>
                 <SelectItem value="COMPUTER_ROOM">{tr('Bilik Komputer', 'Computer Room')}</SelectItem>
                 <SelectItem value="LECTURE_HALL">{tr('Dewan Kuliah', 'Lecture Hall')}</SelectItem>
+                <SelectItem value="ASSEMBLY_HALL">{tr('Dewan Utama', 'Assembly Hall')}</SelectItem>
+                <SelectItem value="MEETING_ROOM">{tr('Bilik Mesyuarat', 'Meeting Room')}</SelectItem>
+                <SelectItem value="SEMINAR_ROOM">{tr('Bilik Seminar', 'Seminar Room')}</SelectItem>
+                <SelectItem value="MAKMAL_BENGKEL">{tr('Makmal Bengkel', 'Workshop Lab')}</SelectItem>
+                <SelectItem value="HOSTEL">{tr('Asrama', 'Hostel')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -692,6 +705,11 @@ export function FacilitiesView() {
                   <SelectContent>
                     <SelectItem value="COMPUTER_ROOM">{tr('Bilik Komputer', 'Computer Room')}</SelectItem>
                     <SelectItem value="LECTURE_HALL">{tr('Dewan Kuliah', 'Lecture Hall')}</SelectItem>
+                    <SelectItem value="ASSEMBLY_HALL">{tr('Dewan Utama', 'Assembly Hall')}</SelectItem>
+                    <SelectItem value="MEETING_ROOM">{tr('Bilik Mesyuarat', 'Meeting Room')}</SelectItem>
+                    <SelectItem value="SEMINAR_ROOM">{tr('Bilik Seminar', 'Seminar Room')}</SelectItem>
+                    <SelectItem value="MAKMAL_BENGKEL">{tr('Makmal Bengkel', 'Workshop Lab')}</SelectItem>
+                    <SelectItem value="HOSTEL">{tr('Asrama', 'Hostel')}</SelectItem>
                   </SelectContent>
                 </Select>
                 {editTarget && (
